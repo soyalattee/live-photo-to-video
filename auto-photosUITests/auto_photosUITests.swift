@@ -23,21 +23,50 @@ final class auto_photosUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testHomeStateShowsPrimaryCTA() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("UITEST_SCENARIO_HOME")
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.buttons["home.makeVideoButton"].exists)
     }
 
     @MainActor
-    func testLaunchPerformance() throws {
-        if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 7.0, *) {
-            // This measures how long it takes to launch your application.
-            measure(metrics: [XCTApplicationLaunchMetric()]) {
-                XCUIApplication().launch()
-            }
-        }
+    func testInvalidSelectionStateShowsValidationMessage() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("UITEST_SCENARIO_INVALID_SELECTION")
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["selection.validationText"].exists)
+        XCTAssertFalse(app.buttons["selection.generateButton"].isEnabled)
+    }
+
+    @MainActor
+    func testGeneratingStateShowsProgressCopy() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("UITEST_SCENARIO_GENERATING")
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["generation.statusText"].exists)
+        XCTAssertTrue(app.buttons["generation.cancelButton"].exists)
+    }
+
+    @MainActor
+    func testPreviewStateShowsSaveAndShareActions() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("UITEST_SCENARIO_PREVIEW")
+        app.launch()
+
+        XCTAssertTrue(app.buttons["preview.saveButton"].exists)
+        XCTAssertTrue(app.buttons["preview.shareButton"].exists)
+    }
+
+    @MainActor
+    func testErrorStateShowsRetryAction() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("UITEST_SCENARIO_ERROR")
+        app.launch()
+
+        XCTAssertTrue(app.buttons["error.retryButton"].exists)
     }
 }
