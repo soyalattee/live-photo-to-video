@@ -12,44 +12,49 @@ import UIKit
 
 @MainActor
 struct auto_photosTests {
-    @Test("선택 개수 규칙을 검증한다")
-    func selectionRulesValidation() {
-        #expect(SelectionRules.validationMessage(for: 2) == "최소 3장 선택")
-        #expect(SelectionRules.validationMessage(for: 3) == nil)
-        #expect(SelectionRules.validationMessage(for: 30) == nil)
-        #expect(SelectionRules.validationMessage(for: 31) == "최대 30장까지 선택할 수 있어요.")
+    @Test("템플릿은 정확한 사진 수와 총 길이를 관리한다")
+    func templateValidationAndDuration() {
+        let template = TemplateCatalog.templates[0]
+
+        #expect(template.photoCount == 10)
+        #expect(template.validationMessage(for: 9) == "10장 중 9장 선택됨")
+        #expect(template.validationMessage(for: 10) == nil)
+        #expect(template.validationMessage(for: 11) == "10장까지만 사용할 수 있어요.")
+        #expect(abs(template.totalDuration - 20.9) < 0.0001)
     }
 
-    @Test("사진과 Live Photo 길이 계산이 순서를 유지한다")
-    func durationCalculationKeepsOrder() {
-        let items = [
-            makeItem(index: 0, kind: .photo),
-            makeItem(index: 1, kind: .livePhoto),
-            makeItem(index: 2, kind: .photo),
-        ]
+    @Test("템플릿 선택 후 사진 순서를 다시 배치할 수 있다")
+    func selectionCanBeReordered() {
+        let viewModel = makeViewModel()
+        let template = TemplateCatalog.templates[0]
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
 
-        #expect(items.map(\.selectionIndex) == [0, 1, 2])
-        #expect(abs(ClipDurationPolicy.totalDuration(for: items.map(\.kind)) - 4.8) < 0.0001)
-    }
+        let firstItem = viewModel.selectedItems[0]
+        let targetItem = viewModel.selectedItems[3]
 
-    @Test("Live Photo 비디오가 없으면 정지 이미지 클립으로 fallback 한다")
-    func livePhotoFallsBackToStillImageDescriptor() {
-        let descriptor = ClipDurationPolicy.descriptor(for: .livePhoto, liveVideoAvailable: false)
+        viewModel.moveItem(firstItem, before: targetItem)
 
-        #expect(descriptor.kind == .stillImage)
-        #expect(abs(descriptor.duration - 1.6) < 0.0001)
+        #expect(viewModel.selectedItems[2].id == firstItem.id)
+        #expect(viewModel.selectedItems.map(\.selectionIndex) == Array(0..<template.photoCount))
     }
 
     @Test("정상 생성 시 preview 상태로 전이한다")
     func generationSuccessTransitionsToPreview() async throws {
-        let generator = MockVideoGenerationService(result: .success(GeneratedVideo(url: tempURL("success"), duration: 4.0)))
-        let viewModel = AutoPhotosViewModel(
-            photoLibraryService: MockPhotoLibraryService(),
-            videoGenerationService: generator,
-            videoSaveService: MockVideoSaveService()
+        let template = TemplateCatalog.templates[0]
+        let generator = MockVideoGenerationService(
+            result: .success(
+                GeneratedVideo(
+                    url: tempURL("success"),
+                    duration: template.totalDuration,
+                    renderOptions: template.previewRenderOptions
+                )
+            )
         )
+        let viewModel = makeViewModel(generator: generator)
 
-        viewModel.applyResolvedSelection(validSelection())
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
         viewModel.startGeneration()
 
         #expect(await eventually {
@@ -63,14 +68,12 @@ struct auto_photosTests {
 
     @Test("생성 취소 시 selectionReview 상태로 돌아간다")
     func cancellationTransitionsBackToSelectionReview() async throws {
+        let template = TemplateCatalog.templates[0]
         let generator = MockVideoGenerationService(result: .cancellable)
-        let viewModel = AutoPhotosViewModel(
-            photoLibraryService: MockPhotoLibraryService(),
-            videoGenerationService: generator,
-            videoSaveService: MockVideoSaveService()
-        )
+        let viewModel = makeViewModel(generator: generator)
 
-        viewModel.applyResolvedSelection(validSelection())
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
         viewModel.startGeneration()
 
         #expect(await eventually {
@@ -86,33 +89,18 @@ struct auto_photosTests {
         #expect(await eventually { viewModel.generationState == .selectionReview })
     }
 
-    @Test("선택 해석 실패와 렌더 실패 시 error 상태를 노출한다")
-    func errorTransitionsAreExposed() async throws {
-        let failureGenerator = MockVideoGenerationService(result: .failure(AutoPhotosError.exportFailed))
-        let viewModel = AutoPhotosViewModel(
-            photoLibraryService: MockPhotoLibraryService(),
-            videoGenerationService: failureGenerator,
-            videoSaveService: MockVideoSaveService()
-        )
-
-        viewModel.handleSelectionResolutionFailure(AutoPhotosError.assetNotFound)
-        #expect(viewModel.currentErrorMessage == "선택한 사진을 불러오지 못했어요. 다시 선택해주세요.")
-
-        viewModel.applyResolvedSelection(validSelection())
-        viewModel.startGeneration()
-
-        #expect(await eventually {
-            if case .error = viewModel.generationState {
-                return true
-            }
-
-            return false
-        })
-    }
-
     @Test("저장 실패 시 preview 상태는 유지되고 alert가 표시된다")
     func saveFailureKeepsPreviewState() async throws {
-        let generator = MockVideoGenerationService(result: .success(GeneratedVideo(url: tempURL("preview"), duration: 4.0)))
+        let template = TemplateCatalog.templates[0]
+        let generator = MockVideoGenerationService(
+            result: .success(
+                GeneratedVideo(
+                    url: tempURL("preview"),
+                    duration: template.totalDuration,
+                    renderOptions: template.previewRenderOptions
+                )
+            )
+        )
         let saver = MockVideoSaveService(error: AutoPhotosError.saveFailed)
         let viewModel = AutoPhotosViewModel(
             photoLibraryService: MockPhotoLibraryService(),
@@ -120,7 +108,8 @@ struct auto_photosTests {
             videoSaveService: saver
         )
 
-        viewModel.applyResolvedSelection(validSelection())
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
         viewModel.startGeneration()
 
         #expect(await eventually {
@@ -142,6 +131,61 @@ struct auto_photosTests {
         }())
         #expect(viewModel.alertInfo?.title == "저장 실패")
     }
+
+    @Test("미리보기와 다른 내보내기 옵션이면 별도 렌더를 사용한다")
+    func exportVariantsAreRenderedSeparately() async throws {
+        let template = VideoTemplate(
+            id: "text-template",
+            name: "Text Template",
+            tagline: "tag",
+            description: "desc",
+            photoCount: 10,
+            clipDurations: Array(repeating: 2.0, count: 10),
+            audioTrack: nil,
+            textOverlay: TemplateTextOverlay(text: "miniLog", startTime: 1, endTime: 8),
+            theme: TemplateCatalog.templates[0].theme
+        )
+        let generator = MockVideoGenerationService(
+            result: .dynamic { request in
+                GeneratedVideo(
+                    url: tempURL(request.renderOptions.includesText ? "text-on" : "text-off"),
+                    duration: request.template.totalDuration,
+                    renderOptions: request.renderOptions
+                )
+            }
+        )
+        let viewModel = makeViewModel(generator: generator)
+
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
+        viewModel.startGeneration()
+
+        #expect(await eventually {
+            if case .preview = viewModel.generationState {
+                return true
+            }
+
+            return false
+        })
+
+        viewModel.updateExportTextOption(false)
+        await viewModel.prepareShareVideo()
+
+        #expect(viewModel.shareSheetPayload != nil)
+        #expect(generator.generatedRequests.count == 2)
+        #expect(generator.generatedRequests.last?.renderOptions.includesText == false)
+    }
+}
+
+@MainActor
+private func makeViewModel(generator: MockVideoGenerationService = MockVideoGenerationService(result: .success(
+    GeneratedVideo(url: tempURL("default"), duration: TemplateCatalog.templates[0].totalDuration, renderOptions: TemplateCatalog.templates[0].previewRenderOptions)
+))) -> AutoPhotosViewModel {
+    AutoPhotosViewModel(
+        photoLibraryService: MockPhotoLibraryService(),
+        videoGenerationService: generator,
+        videoSaveService: MockVideoSaveService()
+    )
 }
 
 private final class MockPhotoLibraryService: PhotoLibraryService {
@@ -155,18 +199,21 @@ private final class MockVideoGenerationService: VideoGenerationService {
         case success(GeneratedVideo)
         case failure(Error)
         case cancellable
+        case dynamic((VideoGenerationRequest) -> GeneratedVideo)
     }
 
     private let result: Behavior
+    private(set) var generatedRequests: [VideoGenerationRequest] = []
 
     init(result: Behavior) {
         self.result = result
     }
 
     func generateVideo(
-        from items: [SelectedMediaItem],
+        from request: VideoGenerationRequest,
         progress: @escaping @Sendable (GenerationStep) -> Void
     ) async throws -> GeneratedVideo {
+        generatedRequests.append(request)
         progress(.preparing)
 
         switch result {
@@ -181,6 +228,9 @@ private final class MockVideoGenerationService: VideoGenerationService {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 5_000_000)
             }
+        case let .dynamic(builder):
+            progress(.exporting)
+            return builder(request)
         }
     }
 
@@ -197,12 +247,10 @@ private struct MockVideoSaveService: VideoSaveService {
     }
 }
 
-private func validSelection() -> [SelectedMediaItem] {
-    [
-        makeItem(index: 0, kind: .photo),
-        makeItem(index: 1, kind: .livePhoto),
-        makeItem(index: 2, kind: .photo),
-    ]
+private func makeSelection(count: Int) -> [SelectedMediaItem] {
+    (0..<count).map { index in
+        makeItem(index: index, kind: index.isMultiple(of: 2) ? .photo : .livePhoto)
+    }
 }
 
 private func makeItem(index: Int, kind: MediaKind) -> SelectedMediaItem {

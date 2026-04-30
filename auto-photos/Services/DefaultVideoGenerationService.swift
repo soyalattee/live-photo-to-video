@@ -5,10 +5,11 @@
 //  Created by Codex on 4/19/26.
 //
 
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreVideo
 import Foundation
 import Photos
+import QuartzCore
 import UIKit
 
 private struct PreparedClip {
@@ -25,34 +26,47 @@ final class DefaultVideoGenerationService: VideoGenerationService {
     private var activeExportSession: AVAssetExportSession?
 
     func generateVideo(
-        from items: [SelectedMediaItem],
+        from request: VideoGenerationRequest,
         progress: @escaping @Sendable (GenerationStep) -> Void
     ) async throws -> GeneratedVideo {
-        guard SelectionRules.isValid(items.count) else {
+        guard request.items.count == request.template.photoCount else {
             throw AutoPhotosError.invalidSelection
+        }
+
+        guard request.template.photoCount == request.template.clipDurations.count else {
+            throw AutoPhotosError.templateConfigurationInvalid
         }
 
         var temporaryURLs: [URL] = []
 
         do {
             progress(.preparing)
-            let preparedClips = try await prepareClips(from: items)
+            let preparedClips = try await prepareClips(
+                from: request.items,
+                clipDurations: request.template.clipDurations
+            )
             temporaryURLs.append(contentsOf: preparedClips.map(\.url))
 
             try Task.checkCancellation()
 
             progress(.composing)
             let composition = try await composeVideo(from: preparedClips)
+            try await attachAudioIfNeeded(to: composition, request: request)
+            let videoComposition = makeVideoCompositionIfNeeded(for: composition, request: request)
 
             try Task.checkCancellation()
 
             progress(.exporting)
             let finalURL = makeTemporaryURL(prefix: "auto-photos-final", pathExtension: "mp4")
-            try await export(asset: composition, videoComposition: nil, to: finalURL)
+            try await export(asset: composition, videoComposition: videoComposition, to: finalURL)
 
             cleanup(urls: temporaryURLs)
 
-            return GeneratedVideo(url: finalURL, duration: composition.duration.seconds)
+            return GeneratedVideo(
+                url: finalURL,
+                duration: composition.duration.seconds,
+                renderOptions: request.renderOptions
+            )
         } catch {
             cleanup(urls: temporaryURLs)
             throw error
@@ -65,33 +79,37 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
     }
 
-    private func prepareClips(from items: [SelectedMediaItem]) async throws -> [PreparedClip] {
+    private func prepareClips(
+        from items: [SelectedMediaItem],
+        clipDurations: [TimeInterval]
+    ) async throws -> [PreparedClip] {
         var clips: [PreparedClip] = []
+        let sortedItems = items.sorted(by: { $0.selectionIndex < $1.selectionIndex })
 
-        for item in items.sorted(by: { $0.selectionIndex < $1.selectionIndex }) {
+        for (item, duration) in zip(sortedItems, clipDurations) {
             try Task.checkCancellation()
-            clips.append(try await makeClip(for: item))
+            clips.append(try await makeClip(for: item, duration: duration))
         }
 
         return clips
     }
 
-    private func makeClip(for item: SelectedMediaItem) async throws -> PreparedClip {
+    private func makeClip(for item: SelectedMediaItem, duration: TimeInterval) async throws -> PreparedClip {
         switch item.kind {
         case .photo:
-            return try await makeStillClip(from: item.assetLocalIdentifier, duration: ClipDurationPolicy.photoDuration)
+            return try await makeStillClip(from: item.assetLocalIdentifier, duration: duration)
         case .livePhoto:
             if let pairedVideoURL = try await exportPairedVideoURL(for: item.assetLocalIdentifier) {
                 defer { try? FileManager.default.removeItem(at: pairedVideoURL) }
 
                 do {
-                    return try await makeNormalizedLiveClip(from: pairedVideoURL)
+                    return try await makeNormalizedLiveClip(from: pairedVideoURL, duration: duration)
                 } catch {
-                    return try await makeStillClip(from: item.assetLocalIdentifier, duration: ClipDurationPolicy.photoDuration)
+                    return try await makeStillClip(from: item.assetLocalIdentifier, duration: duration)
                 }
             }
 
-            return try await makeStillClip(from: item.assetLocalIdentifier, duration: ClipDurationPolicy.photoDuration)
+            return try await makeStillClip(from: item.assetLocalIdentifier, duration: duration)
         }
     }
 
@@ -164,7 +182,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         return PreparedClip(url: outputURL, duration: durationTime)
     }
 
-    private func makeNormalizedLiveClip(from sourceURL: URL) async throws -> PreparedClip {
+    private func makeNormalizedLiveClip(from sourceURL: URL, duration: TimeInterval) async throws -> PreparedClip {
         let asset = AVURLAsset(url: sourceURL)
         let tracks = try await asset.loadTracks(withMediaType: .video)
 
@@ -173,7 +191,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
 
         let sourceDuration = try await asset.load(.duration)
-        let clipDuration = min(sourceDuration, CMTime(seconds: ClipDurationPolicy.livePhotoDuration, preferredTimescale: framesPerSecond))
+        let requestedDuration = CMTime(seconds: duration, preferredTimescale: framesPerSecond)
+        let clipDuration = min(sourceDuration, requestedDuration)
 
         let composition = AVMutableComposition()
         guard let compositionTrack = composition.addMutableTrack(
@@ -238,6 +257,137 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
 
         return composition
+    }
+
+    private func attachAudioIfNeeded(
+        to composition: AVMutableComposition,
+        request: VideoGenerationRequest
+    ) async throws {
+        guard request.renderOptions.includesMusic else {
+            return
+        }
+
+        guard let audioURL = request.template.audioTrack?.bundleURL else {
+            return
+        }
+
+        let audioAsset = AVURLAsset(url: audioURL)
+        let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
+
+        guard let sourceTrack = audioTracks.first else {
+            return
+        }
+
+        let sourceDuration = try await audioAsset.load(.duration)
+        guard sourceDuration.isNumeric && sourceDuration.seconds > 0 else {
+            return
+        }
+
+        guard let compositionTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            throw AutoPhotosError.exportFailed
+        }
+
+        let targetDuration = composition.duration
+        var cursor = CMTime.zero
+
+        while CMTimeCompare(cursor, targetDuration) < 0 {
+            let remaining = CMTimeSubtract(targetDuration, cursor)
+            let segmentDuration = CMTimeCompare(remaining, sourceDuration) < 0 ? remaining : sourceDuration
+            try compositionTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: segmentDuration),
+                of: sourceTrack,
+                at: cursor
+            )
+            cursor = CMTimeAdd(cursor, segmentDuration)
+        }
+    }
+
+    private func makeVideoCompositionIfNeeded(
+        for composition: AVMutableComposition,
+        request: VideoGenerationRequest
+    ) -> AVMutableVideoComposition? {
+        guard request.renderOptions.includesText else {
+            return nil
+        }
+
+        guard
+            let overlay = request.template.textOverlay,
+            overlay.endTime > overlay.startTime,
+            let videoTrack = composition.tracks(withMediaType: .video).first
+        else {
+            return nil
+        }
+
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.renderSize = renderSize
+        videoComposition.frameDuration = CMTime(value: 1, timescale: framesPerSecond)
+
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
+
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+        instruction.layerInstructions = [layerInstruction]
+        videoComposition.instructions = [instruction]
+
+        let parentLayer = CALayer()
+        parentLayer.frame = CGRect(origin: .zero, size: renderSize)
+
+        let videoLayer = CALayer()
+        videoLayer.frame = CGRect(origin: .zero, size: renderSize)
+        parentLayer.addSublayer(videoLayer)
+
+        let textBackgroundLayer = CALayer()
+        textBackgroundLayer.frame = CGRect(x: 72, y: 188, width: 936, height: 160)
+        textBackgroundLayer.backgroundColor = UIColor.black.withAlphaComponent(0.18).cgColor
+        textBackgroundLayer.cornerRadius = 42
+        parentLayer.addSublayer(textBackgroundLayer)
+
+        let textLayer = CATextLayer()
+        textLayer.frame = CGRect(x: 96, y: 214, width: 888, height: 110)
+        textLayer.alignmentMode = .center
+        textLayer.contentsScale = UIScreen.main.scale
+        textLayer.isWrapped = true
+        textLayer.opacity = 0
+        textLayer.string = NSAttributedString(
+            string: overlay.text,
+            attributes: [
+                .font: UIFont(name: "AvenirNextCondensed-DemiBold", size: 74) ?? UIFont.boldSystemFont(ofSize: 74),
+                .foregroundColor: UIColor.white,
+                .kern: 1.6,
+            ]
+        )
+        parentLayer.addSublayer(textLayer)
+
+        let totalDuration = max(composition.duration.seconds, 0.01)
+        let startProgress = max(0, min(overlay.startTime / totalDuration, 1))
+        let endProgress = max(startProgress, min(overlay.endTime / totalDuration, 1))
+        let enterProgress = min(startProgress + 0.03, endProgress)
+        let exitProgress = max(startProgress, endProgress - 0.03)
+
+        let opacityAnimation = CAKeyframeAnimation(keyPath: "opacity")
+        opacityAnimation.values = [0, 0, 1, 1, 0, 0]
+        opacityAnimation.keyTimes = [
+            0,
+            NSNumber(value: startProgress),
+            NSNumber(value: enterProgress),
+            NSNumber(value: exitProgress),
+            NSNumber(value: endProgress),
+            1,
+        ]
+        opacityAnimation.duration = totalDuration
+        opacityAnimation.fillMode = .forwards
+        opacityAnimation.isRemovedOnCompletion = false
+        textLayer.add(opacityAnimation, forKey: "templateTextOpacity")
+
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+            postProcessingAsVideoLayer: videoLayer,
+            in: parentLayer
+        )
+
+        return videoComposition
     }
 
     private func export(asset: AVAsset, videoComposition: AVVideoComposition?, to outputURL: URL) async throws {

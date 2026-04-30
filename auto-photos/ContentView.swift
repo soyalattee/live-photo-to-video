@@ -9,6 +9,7 @@ import AVKit
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var viewModel: AutoPhotosViewModel
@@ -24,21 +25,22 @@ struct ContentView: View {
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
+    private var activeTheme: TemplateTheme {
+        viewModel.selectedTemplate?.theme ?? TemplateCatalog.templates[0].theme
+    }
+
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.96, green: 0.93, blue: 0.90), Color(red: 0.89, green: 0.94, blue: 0.98)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            AtmosphericBackgroundView(theme: activeTheme)
+                .ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 26) {
                     headerSection
                     contentSection
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
             }
 
             if viewModel.isResolvingSelection {
@@ -53,11 +55,15 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $isPickerPresented) {
-            MediaPickerSheet { results in
+            MediaPickerSheet(selectionLimit: viewModel.pickerSelectionLimit) { results in
                 Task {
                     await viewModel.handlePickerResults(results)
                 }
             }
+            .id(viewModel.pickerResetToken)
+        }
+        .sheet(item: $viewModel.shareSheetPayload, onDismiss: viewModel.dismissShareSheet) { payload in
+            ShareSheetView(items: [payload.url])
         }
     }
 
@@ -65,41 +71,65 @@ struct ContentView: View {
     private var contentSection: some View {
         switch viewModel.generationState {
         case .idle:
-            HomeStateView {
-                isPickerPresented = true
-            }
-        case .selectionReview:
-            SelectionReviewView(
-                items: viewModel.selectedItems,
-                summary: viewModel.selectionSummary,
-                estimatedDurationText: viewModel.estimatedDurationText,
-                validationMessage: viewModel.validationMessage,
-                canGenerate: viewModel.canGenerate,
-                onGenerate: viewModel.startGeneration,
-                onReselect: {
+            HomeStateView(
+                templates: viewModel.templates,
+                selectedTemplate: viewModel.selectedTemplate,
+                canOpenPicker: viewModel.canOpenPicker,
+                onSelectTemplate: viewModel.selectTemplate,
+                onOpenPicker: {
                     isPickerPresented = true
-                },
-                onReset: viewModel.resetToHome
+                }
             )
+        case .selectionReview:
+            if let selectedTemplate = viewModel.selectedTemplate {
+                SelectionReviewView(
+                    template: selectedTemplate,
+                    items: viewModel.selectedItems,
+                    summary: viewModel.selectionSummary,
+                    estimatedDurationText: viewModel.estimatedDurationText,
+                    validationMessage: viewModel.validationMessage,
+                    canGenerate: viewModel.canGenerate,
+                    onMoveItem: viewModel.moveItem,
+                    onGenerate: viewModel.startGeneration,
+                    onReselect: {
+                        isPickerPresented = true
+                    },
+                    onReset: viewModel.resetToHome
+                )
+            }
         case let .generating(step):
             GeneratingStateView(
                 step: step,
+                templateName: viewModel.selectedTemplate?.name ?? "Template",
                 count: viewModel.selectedItems.count,
                 onCancel: viewModel.cancelGeneration
             )
         case let .preview(video):
-            PreviewStateView(
-                video: video,
-                isSaving: viewModel.isSaving,
-                statusMessage: viewModel.toastMessage,
-                onSave: {
-                    Task {
-                        await viewModel.saveGeneratedVideo()
-                    }
-                },
-                onRetry: viewModel.returnToSelectionReview,
-                onReset: viewModel.resetToHome
-            )
+            if let selectedTemplate = viewModel.selectedTemplate {
+                PreviewStateView(
+                    template: selectedTemplate,
+                    video: video,
+                    exportOptions: viewModel.exportOptions,
+                    statusMessage: viewModel.toastMessage,
+                    note: viewModel.exportSectionNote,
+                    isSaving: viewModel.isSaving,
+                    isSharing: viewModel.isSharing,
+                    onToggleMusic: viewModel.updateExportMusicOption,
+                    onToggleText: viewModel.updateExportTextOption,
+                    onSave: {
+                        Task {
+                            await viewModel.saveGeneratedVideo()
+                        }
+                    },
+                    onShare: {
+                        Task {
+                            await viewModel.prepareShareVideo()
+                        }
+                    },
+                    onRetry: viewModel.returnToSelectionReview,
+                    onReset: viewModel.resetToHome
+                )
+            }
         case let .error(message):
             ErrorStateView(
                 message: message,
@@ -110,101 +140,137 @@ struct ContentView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Live Photo Short Video Creator")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Template-Driven\nLive Photo Studio")
+                .font(.custom("AvenirNextCondensed-Bold", size: 38))
+                .foregroundStyle(.white)
+                .lineSpacing(-2)
 
-            Text("사진과 Live Photo를 골라서 세로형 쇼츠 영상으로 빠르게 합쳐보세요.")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.secondary)
+            Text("템플릿을 고르고, 사진 순서를 드래그로 다듬고, BGM과 텍스트 포함 여부까지 선택해서 세로형 숏폼을 완성해보세요.")
+                .font(.custom("AvenirNext-Medium", size: 16))
+                .foregroundStyle(Color.white.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
-                TagView(title: "iPhone", systemImage: "iphone")
-                TagView(title: "9:16 MP4", systemImage: "rectangle.portrait")
-                TagView(title: "무음 MVP", systemImage: "speaker.slash")
+                InfoPillView(title: "Template First", systemImage: "square.grid.2x2.fill")
+                InfoPillView(title: "Drag Reorder", systemImage: "hand.draw.fill")
+                InfoPillView(title: "9:16 MP4", systemImage: "rectangle.portrait.fill")
             }
         }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(.white.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .stroke(.white.opacity(0.18), lineWidth: 1)
+                )
+        )
     }
 }
 
 private struct HomeStateView: View {
+    let templates: [VideoTemplate]
+    let selectedTemplate: VideoTemplate?
+    let canOpenPicker: Bool
+    let onSelectTemplate: (VideoTemplate) -> Void
     let onOpenPicker: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            FeatureCardView(
-                title: "한 번에 3~30장 선택",
-                description: "사진과 Live Photo를 섞어서 골라도 순서를 유지해 세로 영상으로 이어붙여요.",
-                systemImage: "square.grid.2x2.fill"
-            )
+        VStack(alignment: .leading, spacing: 20) {
+            Text("템플릿 선택")
+                .font(.custom("AvenirNextCondensed-DemiBold", size: 28))
+                .foregroundStyle(.white)
 
-            FeatureCardView(
-                title: "자동 세로 편집",
-                description: "각 장면을 9:16 비율로 중앙 크롭해서 쇼츠용 프레임으로 맞춰요.",
-                systemImage: "wand.and.stars"
-            )
-
-            FeatureCardView(
-                title: "바로 저장과 공유",
-                description: "생성된 MP4를 사진 앱에 저장하고 필요한 경우 바로 공유할 수 있어요.",
-                systemImage: "square.and.arrow.down"
-            )
-
-            Button(action: onOpenPicker) {
-                Label("영상 만들기", systemImage: "sparkles.rectangle.stack.fill")
-                    .frame(maxWidth: .infinity)
+            VStack(spacing: 14) {
+                ForEach(templates) { template in
+                    TemplateCardView(
+                        template: template,
+                        isSelected: selectedTemplate?.id == template.id,
+                        onSelect: {
+                            onSelectTemplate(template)
+                        }
+                    )
+                }
             }
-            .buttonStyle(PrimaryActionButtonStyle())
-            .accessibilityIdentifier("home.makeVideoButton")
+
+            TemplateActionPanelView(
+                template: selectedTemplate,
+                isButtonEnabled: selectedTemplate != nil && canOpenPicker,
+                onOpenPicker: onOpenPicker
+            )
         }
     }
 }
 
 private struct SelectionReviewView: View {
+    let template: VideoTemplate
     let items: [SelectedMediaItem]
     let summary: String
     let estimatedDurationText: String
     let validationMessage: String?
     let canGenerate: Bool
+    let onMoveItem: (SelectedMediaItem, SelectedMediaItem) -> Void
     let onGenerate: () -> Void
     let onReselect: () -> Void
     let onReset: () -> Void
 
-    private let gridColumns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-    ]
+    @State private var draggedItem: SelectedMediaItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(summary)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+            GlassPanelView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(template.name)
+                        .font(.custom("AvenirNextCondensed-DemiBold", size: 28))
+                        .foregroundStyle(.white)
 
-                Text(estimatedDurationText)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    Text(template.description)
+                        .font(.custom("AvenirNext-Medium", size: 15))
+                        .foregroundStyle(Color.white.opacity(0.78))
 
-                if let validationMessage {
-                    Text(validationMessage)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("selection.validationText")
+                    HStack(spacing: 10) {
+                        MetricPillView(label: summary)
+                        MetricPillView(label: estimatedDurationText)
+                    }
+
+                    Text("기본 선택 순서가 그대로 들어가 있고, 길게 눌러 드래그하면 순서를 바꿀 수 있어요.")
+                        .font(.custom("AvenirNext-Medium", size: 13))
+                        .foregroundStyle(Color.white.opacity(0.66))
+
+                    if let validationMessage {
+                        Text(validationMessage)
+                            .font(.custom("AvenirNext-DemiBold", size: 14))
+                            .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.55))
+                            .accessibilityIdentifier("selection.validationText")
+                    }
                 }
             }
 
-            LazyVGrid(columns: gridColumns, spacing: 12) {
-                ForEach(items) { item in
-                    SelectionThumbnailView(item: item)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(items) { item in
+                        ReorderThumbnailCardView(item: item)
+                            .onDrag {
+                                draggedItem = item
+                                return NSItemProvider(object: NSString(string: item.id.uuidString))
+                            }
+                            .onDrop(
+                                of: [UTType.text],
+                                delegate: ReorderDropDelegate(
+                                    targetItem: item,
+                                    draggedItem: $draggedItem,
+                                    onMoveItem: onMoveItem
+                                )
+                            )
+                    }
                 }
+                .padding(.vertical, 4)
             }
 
             HStack(spacing: 12) {
                 Button(action: onReselect) {
-                    Label("다시 선택", systemImage: "photo.on.rectangle")
+                    Label("사진 다시 선택", systemImage: "photo.on.rectangle.angled")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SecondaryActionButtonStyle())
@@ -220,12 +286,14 @@ private struct SelectionReviewView: View {
 
             Button("처음으로", action: onReset)
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .font(.custom("AvenirNext-Medium", size: 15))
+                .foregroundStyle(Color.white.opacity(0.74))
         }
     }
 }
 
 private struct MediaPickerSheet: UIViewControllerRepresentable {
+    let selectionLimit: Int
     let onComplete: ([PHPickerResult]) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -234,7 +302,7 @@ private struct MediaPickerSheet: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.selectionLimit = SelectionRules.maximumCount
+        configuration.selectionLimit = selectionLimit
         configuration.filter = .any(of: [.images, .livePhotos])
 
         let controller = PHPickerViewController(configuration: configuration)
@@ -260,69 +328,122 @@ private struct MediaPickerSheet: UIViewControllerRepresentable {
 
 private struct GeneratingStateView: View {
     let step: GenerationStep
+    let templateName: String
     let count: Int
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(Color(red: 0.17, green: 0.20, blue: 0.27))
-                .scaleEffect(1.5)
+        GlassPanelView {
+            VStack(spacing: 20) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white)
+                    .scaleEffect(1.6)
 
-            Text(step.title)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
-                .accessibilityIdentifier("generation.statusText")
+                Text(step.title)
+                    .font(.custom("AvenirNextCondensed-Bold", size: 30))
+                    .foregroundStyle(.white)
+                    .accessibilityIdentifier("generation.statusText")
 
-            Text(step.subtitle)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                Text(step.subtitle)
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .foregroundStyle(Color.white.opacity(0.76))
+                    .multilineTextAlignment(.center)
 
-            Text("\(count)개의 장면을 준비하고 있어요.")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+                Text("\(templateName) 템플릿에 \(count)개의 장면을 배치하고 있어요.")
+                    .font(.custom("AvenirNext-Medium", size: 14))
+                    .foregroundStyle(Color.white.opacity(0.66))
 
-            Button("취소", action: onCancel)
-                .buttonStyle(SecondaryActionButtonStyle())
-                .accessibilityIdentifier("generation.cancelButton")
+                Button("취소", action: onCancel)
+                    .buttonStyle(SecondaryActionButtonStyle())
+                    .accessibilityIdentifier("generation.cancelButton")
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
-        .padding(28)
-        .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.white.opacity(0.88))
-        )
     }
 }
 
 private struct PreviewStateView: View {
+    let template: VideoTemplate
     let video: GeneratedVideo
-    let isSaving: Bool
+    let exportOptions: VideoRenderOptions
     let statusMessage: String?
+    let note: String?
+    let isSaving: Bool
+    let isSharing: Bool
+    let onToggleMusic: (Bool) -> Void
+    let onToggleText: (Bool) -> Void
     let onSave: () -> Void
+    let onShare: () -> Void
     let onRetry: () -> Void
     let onReset: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("미리보기")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+                .font(.custom("AvenirNextCondensed-Bold", size: 30))
+                .foregroundStyle(.white)
 
             LoopingVideoPlayerView(url: video.url)
                 .frame(height: 420)
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
                 )
 
-            if let statusMessage {
-                Text(statusMessage)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color.green)
+            GlassPanelView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(template.name)
+                                .font(.custom("AvenirNextCondensed-DemiBold", size: 24))
+                                .foregroundStyle(.white)
+
+                            Text("미리보기는 현재 템플릿 기본 옵션으로 생성된 완성본이에요. 저장이나 공유할 때는 아래 옵션으로 BGM과 텍스트 포함 여부를 바꿀 수 있어요.")
+                                .font(.custom("AvenirNext-Medium", size: 14))
+                                .foregroundStyle(Color.white.opacity(0.72))
+                        }
+
+                        Spacer(minLength: 0)
+
+                        MetricPillView(label: String(format: "%.1fs", video.duration))
+                    }
+
+                    ExportToggleCardView(
+                        title: "노래 포함",
+                        subtitle: template.isMusicAvailable
+                            ? "템플릿 BGM을 영상 길이에 맞춰 자동 trim 또는 loop"
+                            : (template.supportsMusic ? "BGM 파일 추가 후 자동 활성화" : "이 템플릿에는 노래가 없어요"),
+                        systemImage: "music.note",
+                        isOn: exportOptions.includesMusic,
+                        isEnabled: template.isMusicAvailable,
+                        onToggle: onToggleMusic
+                    )
+
+                    ExportToggleCardView(
+                        title: "텍스트 포함",
+                        subtitle: template.supportsText
+                            ? "템플릿 오버레이 텍스트를 함께 출력"
+                            : "이 템플릿에는 텍스트가 없어요",
+                        systemImage: "character.cursor.ibeam",
+                        isOn: exportOptions.includesText,
+                        isEnabled: template.supportsText,
+                        onToggle: onToggleText
+                    )
+
+                    if let note {
+                        Text(note)
+                            .font(.custom("AvenirNext-Medium", size: 13))
+                            .foregroundStyle(Color.white.opacity(0.62))
+                    }
+
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(.custom("AvenirNext-DemiBold", size: 14))
+                            .foregroundStyle(Color(red: 0.74, green: 0.96, blue: 0.77))
+                    }
+                }
             }
 
             HStack(spacing: 12) {
@@ -331,30 +452,37 @@ private struct PreviewStateView: View {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                     } else {
-                        Label("저장", systemImage: "square.and.arrow.down.fill")
+                        Label("사진 앱에 저장", systemImage: "square.and.arrow.down.fill")
                             .frame(maxWidth: .infinity)
                     }
                 }
                 .buttonStyle(PrimaryActionButtonStyle())
-                .disabled(isSaving)
+                .disabled(isSaving || isSharing)
                 .accessibilityIdentifier("preview.saveButton")
 
-                ShareLink(item: video.url) {
-                    Label("공유", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
+                Button(action: onShare) {
+                    if isSharing {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("파일 공유", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
                 }
                 .buttonStyle(SecondaryActionButtonStyle())
+                .disabled(isSaving || isSharing)
                 .accessibilityIdentifier("preview.shareButton")
             }
 
             HStack(spacing: 12) {
-                Button("다시 만들기", action: onRetry)
+                Button("순서 다시 보기", action: onRetry)
                     .buttonStyle(SecondaryActionButtonStyle())
                     .accessibilityIdentifier("preview.retryButton")
 
                 Button("처음으로", action: onReset)
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .foregroundStyle(Color.white.opacity(0.74))
             }
         }
     }
@@ -366,136 +494,339 @@ private struct ErrorStateView: View {
     let onReset: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 42))
-                .foregroundStyle(Color.orange)
+        GlassPanelView {
+            VStack(alignment: .leading, spacing: 18) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 42))
+                    .foregroundStyle(Color(red: 1.0, green: 0.74, blue: 0.35))
 
-            Text("문제가 생겼어요")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+                Text("문제가 생겼어요")
+                    .font(.custom("AvenirNextCondensed-Bold", size: 28))
+                    .foregroundStyle(.white)
 
-            Text(message)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.secondary)
+                Text(message)
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .foregroundStyle(Color.white.opacity(0.72))
 
-            HStack(spacing: 12) {
-                Button("다시 시도", action: onRecover)
-                    .buttonStyle(PrimaryActionButtonStyle())
-                    .accessibilityIdentifier("error.retryButton")
+                HStack(spacing: 12) {
+                    Button("다시 시도", action: onRecover)
+                        .buttonStyle(PrimaryActionButtonStyle())
+                        .accessibilityIdentifier("error.retryButton")
 
-                Button("처음으로", action: onReset)
-                    .buttonStyle(SecondaryActionButtonStyle())
+                    Button("처음으로", action: onReset)
+                        .buttonStyle(SecondaryActionButtonStyle())
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(28)
-        .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.white.opacity(0.9))
-        )
     }
 }
 
 private struct LoadingOverlayView: View {
     var body: some View {
         ZStack {
-            Color.black.opacity(0.15)
+            Color.black.opacity(0.24)
                 .ignoresSafeArea()
 
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
                 ProgressView()
-                Text("선택한 사진을 정리하는 중이에요.")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .tint(.white)
+
+                Text("선택한 사진을 템플릿에 맞게 준비하는 중이에요.")
+                    .font(.custom("AvenirNext-DemiBold", size: 14))
+                    .foregroundStyle(.white)
             }
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
             .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(Color.black.opacity(0.56))
             )
         }
     }
 }
 
-private struct SelectionThumbnailView: View {
+private struct TemplateCardView: View {
+    let template: VideoTemplate
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .top, spacing: 16) {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [template.theme.accent.color, template.theme.secondaryAccent.color],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 92, height: 112)
+                    .overlay(
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(template.photoCount)")
+                                .font(.custom("AvenirNextCondensed-Bold", size: 34))
+                                .foregroundStyle(Color.black.opacity(0.75))
+                            Text("PHOTOS")
+                                .font(.custom("AvenirNext-Bold", size: 12))
+                                .foregroundStyle(Color.black.opacity(0.58))
+                        }
+                        .padding(14),
+                        alignment: .topLeading
+                    )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(template.name)
+                            .font(.custom("AvenirNextCondensed-DemiBold", size: 26))
+                            .foregroundStyle(.white)
+
+                        Spacer(minLength: 0)
+
+                        if isSelected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(template.theme.secondaryAccent.color)
+                        }
+                    }
+
+                    Text(template.tagline)
+                        .font(.custom("AvenirNext-DemiBold", size: 14))
+                        .foregroundStyle(template.theme.secondaryAccent.color)
+
+                    Text(template.description)
+                        .font(.custom("AvenirNext-Medium", size: 14))
+                        .foregroundStyle(Color.white.opacity(0.72))
+
+                    HStack(spacing: 8) {
+                        MetricPillView(label: template.selectionCaption)
+                        MetricPillView(label: String(format: "%.1fs", template.totalDuration))
+                    }
+                }
+            }
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(.white.opacity(isSelected ? 0.16 : 0.11))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(
+                                isSelected ? template.theme.secondaryAccent.color.opacity(0.7) : .white.opacity(0.12),
+                                lineWidth: 1.2
+                            )
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home.templateCard.\(template.id)")
+    }
+}
+
+private struct TemplateActionPanelView: View {
+    let template: VideoTemplate?
+    let isButtonEnabled: Bool
+    let onOpenPicker: () -> Void
+
+    var body: some View {
+        GlassPanelView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let template {
+                    Text("선택된 템플릿")
+                        .font(.custom("AvenirNext-DemiBold", size: 14))
+                        .foregroundStyle(Color.white.opacity(0.64))
+
+                    Text(template.name)
+                        .font(.custom("AvenirNextCondensed-Bold", size: 28))
+                        .foregroundStyle(.white)
+
+                    Text(template.selectionCaption)
+                        .font(.custom("AvenirNext-Medium", size: 15))
+                        .foregroundStyle(Color.white.opacity(0.76))
+                } else {
+                    Text("아직 템플릿이 선택되지 않았어요.")
+                        .font(.custom("AvenirNext-Medium", size: 15))
+                        .foregroundStyle(Color.white.opacity(0.76))
+                }
+
+                Button(action: onOpenPicker) {
+                    Label(
+                        template == nil ? "템플릿을 먼저 선택하세요" : "사진 추가하기",
+                        systemImage: "sparkles.rectangle.stack.fill"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryActionButtonStyle())
+                .disabled(!isButtonEnabled)
+                .accessibilityIdentifier("home.makeVideoButton")
+            }
+        }
+    }
+}
+
+private struct ReorderThumbnailCardView: View {
     let item: SelectedMediaItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Image(uiImage: item.thumbnail)
                 .resizable()
                 .scaledToFill()
-                .frame(height: 110)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .frame(width: 184, height: 260)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 13, weight: .bold))
+                        .padding(10)
+                        .background(.black.opacity(0.42), in: Capsule())
+                        .foregroundStyle(.white)
+                        .padding(12)
+                }
 
-            Text("#\(item.selectionIndex + 1)")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+            Text(String(format: "%02d", item.selectionIndex + 1))
+                .font(.custom("AvenirNextCondensed-Bold", size: 24))
+                .foregroundStyle(.white)
 
             Text(item.kind == .livePhoto ? "Live Photo" : "Photo")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.custom("AvenirNext-DemiBold", size: 13))
+                .foregroundStyle(Color.white.opacity(0.7))
         }
-        .padding(10)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.85))
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(.white.opacity(0.11))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                )
         )
     }
 }
 
-private struct FeatureCardView: View {
+private struct ExportToggleCardView: View {
     let title: String
-    let description: String
+    let subtitle: String
     let systemImage: String
+    let isOn: Bool
+    let isEnabled: Bool
+    let onToggle: (Bool) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
-                .frame(width: 40, height: 40)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white.opacity(0.7))
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.white.opacity(0.12))
                 )
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+                    .font(.custom("AvenirNext-DemiBold", size: 16))
+                    .foregroundStyle(.white)
 
-                Text(description)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
+                Text(subtitle)
+                    .font(.custom("AvenirNext-Medium", size: 13))
+                    .foregroundStyle(Color.white.opacity(0.66))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
+
+            Toggle("", isOn: Binding(
+                get: { isOn },
+                set: { onToggle($0) }
+            ))
+            .labelsHidden()
+            .disabled(!isEnabled)
+            .tint(Color(red: 0.95, green: 0.63, blue: 0.35))
         }
-        .padding(18)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white.opacity(0.82))
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(.black.opacity(0.16))
         )
     }
 }
 
-private struct TagView: View {
+private struct GlassPanelView<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .fill(.white.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            .stroke(.white.opacity(0.14), lineWidth: 1)
+                    )
+            )
+    }
+}
+
+private struct MetricPillView: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.custom("AvenirNext-DemiBold", size: 12))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.white.opacity(0.12), in: Capsule())
+    }
+}
+
+private struct InfoPillView: View {
     let title: String
     let systemImage: String
 
     var body: some View {
         Label(title, systemImage: systemImage)
-            .font(.system(size: 12, weight: .bold))
+            .font(.custom("AvenirNext-DemiBold", size: 12))
+            .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.8))
+            .padding(.vertical, 9)
+            .background(.white.opacity(0.12), in: Capsule())
+    }
+}
+
+private struct AtmosphericBackgroundView: View {
+    let theme: TemplateTheme
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [theme.backgroundTop.color, theme.backgroundBottom.color],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
-            .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+
+            Circle()
+                .fill(theme.accent.color.opacity(0.28))
+                .frame(width: 320, height: 320)
+                .blur(radius: 18)
+                .offset(x: 120, y: -260)
+
+            Circle()
+                .fill(theme.secondaryAccent.color.opacity(0.20))
+                .frame(width: 280, height: 280)
+                .blur(radius: 28)
+                .offset(x: -150, y: 260)
+
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.white.opacity(0.03), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
     }
 }
 
@@ -519,38 +850,80 @@ private struct LoopingVideoPlayerView: View {
     }
 }
 
+private struct ShareSheetView: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct ReorderDropDelegate: DropDelegate {
+    let targetItem: SelectedMediaItem
+    @Binding var draggedItem: SelectedMediaItem?
+    let onMoveItem: (SelectedMediaItem, SelectedMediaItem) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedItem, draggedItem.id != targetItem.id else {
+            return
+        }
+
+        onMoveItem(draggedItem, targetItem)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedItem = nil
+        return true
+    }
+}
+
 private struct PrimaryActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 17, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
+            .font(.custom("AvenirNext-DemiBold", size: 16))
+            .foregroundStyle(Color.black.opacity(0.8))
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color(red: 0.19, green: 0.24, blue: 0.34))
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.98, green: 0.79, blue: 0.43),
+                                Color(red: 0.94, green: 0.56, blue: 0.31),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .shadow(color: .black.opacity(configuration.isPressed ? 0.08 : 0.2), radius: 18, y: 10)
             )
-            .opacity(configuration.isPressed ? 0.8 : 1.0)
-            .scaleEffect(configuration.isPressed ? 0.99 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .scaleEffect(configuration.isPressed ? 0.99 : 1)
     }
 }
 
 private struct SecondaryActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .bold, design: .rounded))
-            .foregroundStyle(Color(red: 0.17, green: 0.20, blue: 0.27))
+            .font(.custom("AvenirNext-DemiBold", size: 16))
+            .foregroundStyle(.white)
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.85))
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.white.opacity(configuration.isPressed ? 0.12 : 0.09))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(.white.opacity(0.15), lineWidth: 1)
+                    )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.white.opacity(0.6), lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.8 : 1.0)
-            .scaleEffect(configuration.isPressed ? 0.99 : 1.0)
+            .opacity(configuration.isPressed ? 0.92 : 1)
     }
 }
