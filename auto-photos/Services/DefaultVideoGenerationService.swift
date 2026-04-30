@@ -383,27 +383,18 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             height: textSize.height
         )
 
-        let textBackgroundLayer = CALayer()
-        textBackgroundLayer.frame = textFrame.insetBy(dx: -18, dy: -10)
-        textBackgroundLayer.backgroundColor = UIColor.black.withAlphaComponent(0.18).cgColor
-        textBackgroundLayer.cornerRadius = 42
-        parentLayer.addSublayer(textBackgroundLayer)
-
-        let textLayer = CATextLayer()
+        let resolvedFont = UIFont(name: overlay.fontName, size: overlay.fontSize)
+            ?? UIFont.boldSystemFont(ofSize: overlay.fontSize)
+        let textLayer = CALayer()
         textLayer.frame = textFrame
-        textLayer.alignmentMode = .center
+        textLayer.contentsGravity = .resizeAspect
         textLayer.contentsScale = UIScreen.main.scale
-        textLayer.isWrapped = true
         textLayer.opacity = 0
-        textLayer.string = NSAttributedString(
-            string: overlay.text,
-            attributes: [
-                .font: UIFont(name: overlay.fontName, size: overlay.fontSize)
-                    ?? UIFont.boldSystemFont(ofSize: overlay.fontSize),
-                .foregroundColor: UIColor.white,
-                .kern: 1.6,
-            ]
-        )
+        textLayer.contents = makeOverlayTextImage(
+            text: overlay.text,
+            font: resolvedFont,
+            size: textFrame.size
+        )?.cgImage
         parentLayer.addSublayer(textLayer)
 
         let totalDuration = max(composition.duration.seconds, 0.01)
@@ -412,19 +403,13 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         let enterProgress = min(startProgress + 0.03, endProgress)
         let exitProgress = max(startProgress, endProgress - 0.03)
 
-        let opacityAnimation = CAKeyframeAnimation(keyPath: "opacity")
-        opacityAnimation.values = [0, 0, 1, 1, 0, 0]
-        opacityAnimation.keyTimes = [
-            0,
-            NSNumber(value: startProgress),
-            NSNumber(value: enterProgress),
-            NSNumber(value: exitProgress),
-            NSNumber(value: endProgress),
-            1,
-        ]
-        opacityAnimation.duration = totalDuration
-        opacityAnimation.fillMode = .forwards
-        opacityAnimation.isRemovedOnCompletion = false
+        let opacityAnimation = makeOverlayOpacityAnimation(
+            totalDuration: totalDuration,
+            startProgress: startProgress,
+            enterProgress: enterProgress,
+            exitProgress: exitProgress,
+            endProgress: endProgress
+        )
         textLayer.add(opacityAnimation, forKey: "templateTextOpacity")
 
         videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
@@ -591,6 +576,67 @@ final class DefaultVideoGenerationService: VideoGenerationService {
     private func setActiveExportSession(_ session: AVAssetExportSession) {
         exportSessionQueue.sync {
             activeExportSession = session
+        }
+    }
+
+    private func makeOverlayOpacityAnimation(
+        totalDuration: TimeInterval,
+        startProgress: Double,
+        enterProgress: Double,
+        exitProgress: Double,
+        endProgress: Double
+    ) -> CAKeyframeAnimation {
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.values = [0, 0, 1, 1, 0, 0]
+        animation.keyTimes = [
+            0,
+            NSNumber(value: startProgress),
+            NSNumber(value: enterProgress),
+            NSNumber(value: exitProgress),
+            NSNumber(value: endProgress),
+            1,
+        ]
+        animation.beginTime = AVCoreAnimationBeginTimeAtZero
+        animation.duration = totalDuration
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        return animation
+    }
+
+    private func makeOverlayTextImage(
+        text: String,
+        font: UIFont,
+        size: CGSize
+    ) -> UIImage? {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = UIScreen.main.scale
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.lineBreakMode = .byWordWrapping
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.white,
+            .paragraphStyle: paragraphStyle,
+        ]
+
+        let attributedText = NSAttributedString(string: text, attributes: attributes)
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            let insetBounds = CGRect(origin: .zero, size: size).insetBy(dx: 20, dy: 12)
+            let measuredRect = attributedText.boundingRect(
+                with: insetBounds.size,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+            let drawRect = CGRect(
+                x: insetBounds.minX,
+                y: insetBounds.minY + max((insetBounds.height - measuredRect.height) / 2, 0),
+                width: insetBounds.width,
+                height: min(measuredRect.height, insetBounds.height)
+            )
+            attributedText.draw(with: drawRect, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         }
     }
 
