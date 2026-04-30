@@ -25,13 +25,9 @@ struct ContentView: View {
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
-    private var activeTheme: TemplateTheme {
-        viewModel.selectedTemplate?.theme ?? TemplateCatalog.templates[0].theme
-    }
-
     var body: some View {
         ZStack {
-            AtmosphericBackgroundView(theme: activeTheme)
+            AtmosphericBackgroundView()
                 .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
@@ -140,32 +136,37 @@ struct ContentView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Template-Driven\nLive Photo Studio")
-                .font(.custom("AvenirNextCondensed-Bold", size: 38))
-                .foregroundStyle(.white)
-                .lineSpacing(-2)
+        HStack(alignment: .center, spacing: 20) {
+            BrandLogoView(size: 96)
 
-            Text("템플릿을 고르고, 사진 순서를 드래그로 다듬고, BGM과 텍스트 포함 여부까지 선택해서 세로형 숏폼을 완성해보세요.")
-                .font(.custom("AvenirNext-Medium", size: 16))
-                .foregroundStyle(Color.white.opacity(0.82))
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Template-Driven\nLive Photo Studio")
+                    .font(.custom("AvenirNextCondensed-Bold", size: 36))
+                    .foregroundStyle(BrandPalette.ink)
+                    .lineSpacing(-2)
 
-            HStack(spacing: 10) {
-                InfoPillView(title: "Template First", systemImage: "square.grid.2x2.fill")
-                InfoPillView(title: "Drag Reorder", systemImage: "hand.draw.fill")
-                InfoPillView(title: "9:16 MP4", systemImage: "rectangle.portrait.fill")
+                Text("로고의 무드처럼 깔끔하고 부드러운 톤으로, 사진을 골라 순서를 다듬고 감도 있게 숏폼으로 완성해보세요.")
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .foregroundStyle(BrandPalette.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    InfoPillView(title: "Template First", systemImage: "square.grid.2x2.fill")
+                    InfoPillView(title: "Drag Reorder", systemImage: "hand.draw.fill")
+                    InfoPillView(title: "9:16 MP4", systemImage: "rectangle.portrait.fill")
+                }
             }
         }
         .padding(24)
         .background(
             RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(.white.opacity(0.12))
+                .fill(BrandPalette.ivory.opacity(0.92))
                 .overlay(
                     RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .stroke(.white.opacity(0.18), lineWidth: 1)
+                        .stroke(BrandPalette.line, lineWidth: 1)
                 )
         )
+        .shadow(color: BrandPalette.shadow, radius: 24, y: 14)
     }
 }
 
@@ -180,7 +181,7 @@ private struct HomeStateView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("템플릿 선택")
                 .font(.custom("AvenirNextCondensed-DemiBold", size: 28))
-                .foregroundStyle(.white)
+                .foregroundStyle(BrandPalette.ink)
 
             VStack(spacing: 14) {
                 ForEach(templates) { template in
@@ -223,11 +224,11 @@ private struct SelectionReviewView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(template.name)
                         .font(.custom("AvenirNextCondensed-DemiBold", size: 28))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(BrandPalette.ink)
 
                     Text(template.description)
                         .font(.custom("AvenirNext-Medium", size: 15))
-                        .foregroundStyle(Color.white.opacity(0.78))
+                        .foregroundStyle(BrandPalette.inkSoft)
 
                     HStack(spacing: 10) {
                         MetricPillView(label: summary)
@@ -236,12 +237,12 @@ private struct SelectionReviewView: View {
 
                     Text("기본 선택 순서가 그대로 들어가 있고, 길게 눌러 드래그하면 순서를 바꿀 수 있어요.")
                         .font(.custom("AvenirNext-Medium", size: 13))
-                        .foregroundStyle(Color.white.opacity(0.66))
+                        .foregroundStyle(BrandPalette.cocoa)
 
                     if let validationMessage {
                         Text(validationMessage)
                             .font(.custom("AvenirNext-DemiBold", size: 14))
-                            .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.55))
+                            .foregroundStyle(Color(red: 0.63, green: 0.34, blue: 0.27))
                             .accessibilityIdentifier("selection.validationText")
                     }
                 }
@@ -337,22 +338,22 @@ private struct GeneratingStateView: View {
             VStack(spacing: 20) {
                 ProgressView()
                     .progressViewStyle(.circular)
-                    .tint(.white)
+                    .tint(BrandPalette.ink)
                     .scaleEffect(1.6)
 
                 Text(step.title)
                     .font(.custom("AvenirNextCondensed-Bold", size: 30))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BrandPalette.ink)
                     .accessibilityIdentifier("generation.statusText")
 
                 Text(step.subtitle)
                     .font(.custom("AvenirNext-Medium", size: 15))
-                    .foregroundStyle(Color.white.opacity(0.76))
+                    .foregroundStyle(BrandPalette.inkSoft)
                     .multilineTextAlignment(.center)
 
                 Text("\(templateName) 템플릿에 \(count)개의 장면을 배치하고 있어요.")
                     .font(.custom("AvenirNext-Medium", size: 14))
-                    .foregroundStyle(Color.white.opacity(0.66))
+                    .foregroundStyle(BrandPalette.cocoa)
 
                 Button("취소", action: onCancel)
                     .buttonStyle(SecondaryActionButtonStyle())
@@ -382,7 +383,7 @@ private struct PreviewStateView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("미리보기")
                 .font(.custom("AvenirNextCondensed-Bold", size: 30))
-                .foregroundStyle(.white)
+                .foregroundStyle(BrandPalette.ink)
 
             LoopingVideoPlayerView(url: video.url)
                 .frame(height: 420)
@@ -398,11 +399,11 @@ private struct PreviewStateView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(template.name)
                                 .font(.custom("AvenirNextCondensed-DemiBold", size: 24))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(BrandPalette.ink)
 
                             Text("미리보기는 현재 템플릿 기본 옵션으로 생성된 완성본이에요. 저장이나 공유할 때는 아래 옵션으로 BGM과 텍스트 포함 여부를 바꿀 수 있어요.")
                                 .font(.custom("AvenirNext-Medium", size: 14))
-                                .foregroundStyle(Color.white.opacity(0.72))
+                                .foregroundStyle(BrandPalette.inkSoft)
                         }
 
                         Spacer(minLength: 0)
@@ -435,13 +436,13 @@ private struct PreviewStateView: View {
                     if let note {
                         Text(note)
                             .font(.custom("AvenirNext-Medium", size: 13))
-                            .foregroundStyle(Color.white.opacity(0.62))
+                            .foregroundStyle(BrandPalette.cocoa)
                     }
 
                     if let statusMessage {
                         Text(statusMessage)
                             .font(.custom("AvenirNext-DemiBold", size: 14))
-                            .foregroundStyle(Color(red: 0.74, green: 0.96, blue: 0.77))
+                            .foregroundStyle(Color(red: 0.31, green: 0.49, blue: 0.34))
                     }
                 }
             }
@@ -498,15 +499,15 @@ private struct ErrorStateView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 42))
-                    .foregroundStyle(Color(red: 1.0, green: 0.74, blue: 0.35))
+                    .foregroundStyle(Color(red: 0.72, green: 0.46, blue: 0.28))
 
                 Text("문제가 생겼어요")
                     .font(.custom("AvenirNextCondensed-Bold", size: 28))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BrandPalette.ink)
 
                 Text(message)
                     .font(.custom("AvenirNext-Medium", size: 15))
-                    .foregroundStyle(Color.white.opacity(0.72))
+                    .foregroundStyle(BrandPalette.inkSoft)
 
                 HStack(spacing: 12) {
                     Button("다시 시도", action: onRecover)
@@ -524,22 +525,26 @@ private struct ErrorStateView: View {
 private struct LoadingOverlayView: View {
     var body: some View {
         ZStack {
-            Color.black.opacity(0.24)
+            BrandPalette.ink.opacity(0.18)
                 .ignoresSafeArea()
 
             VStack(spacing: 14) {
                 ProgressView()
-                    .tint(.white)
+                    .tint(BrandPalette.ink)
 
                 Text("선택한 사진을 템플릿에 맞게 준비하는 중이에요.")
                     .font(.custom("AvenirNext-DemiBold", size: 14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BrandPalette.ink)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
             .background(
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color.black.opacity(0.56))
+                    .fill(BrandPalette.ivory)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(BrandPalette.line, lineWidth: 1)
             )
         }
     }
@@ -579,7 +584,7 @@ private struct TemplateCardView: View {
                     HStack {
                         Text(template.name)
                             .font(.custom("AvenirNextCondensed-DemiBold", size: 26))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(BrandPalette.ink)
 
                         Spacer(minLength: 0)
 
@@ -592,11 +597,11 @@ private struct TemplateCardView: View {
 
                     Text(template.tagline)
                         .font(.custom("AvenirNext-DemiBold", size: 14))
-                        .foregroundStyle(template.theme.secondaryAccent.color)
+                        .foregroundStyle(BrandPalette.cocoa)
 
                     Text(template.description)
                         .font(.custom("AvenirNext-Medium", size: 14))
-                        .foregroundStyle(Color.white.opacity(0.72))
+                        .foregroundStyle(BrandPalette.inkSoft)
 
                     HStack(spacing: 8) {
                         MetricPillView(label: template.selectionCaption)
@@ -607,15 +612,16 @@ private struct TemplateCardView: View {
             .padding(18)
             .background(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(.white.opacity(isSelected ? 0.16 : 0.11))
+                    .fill(BrandPalette.ivory.opacity(isSelected ? 0.96 : 0.88))
                     .overlay(
                         RoundedRectangle(cornerRadius: 28, style: .continuous)
                             .stroke(
-                                isSelected ? template.theme.secondaryAccent.color.opacity(0.7) : .white.opacity(0.12),
+                                isSelected ? BrandPalette.ink.opacity(0.25) : BrandPalette.line,
                                 lineWidth: 1.2
                             )
                     )
             )
+            .shadow(color: BrandPalette.shadow.opacity(isSelected ? 0.14 : 0.08), radius: 20, y: 10)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("home.templateCard.\(template.id)")
@@ -633,19 +639,19 @@ private struct TemplateActionPanelView: View {
                 if let template {
                     Text("선택된 템플릿")
                         .font(.custom("AvenirNext-DemiBold", size: 14))
-                        .foregroundStyle(Color.white.opacity(0.64))
+                        .foregroundStyle(BrandPalette.cocoa)
 
                     Text(template.name)
                         .font(.custom("AvenirNextCondensed-Bold", size: 28))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(BrandPalette.ink)
 
                     Text(template.selectionCaption)
                         .font(.custom("AvenirNext-Medium", size: 15))
-                        .foregroundStyle(Color.white.opacity(0.76))
+                        .foregroundStyle(BrandPalette.inkSoft)
                 } else {
                     Text("아직 템플릿이 선택되지 않았어요.")
                         .font(.custom("AvenirNext-Medium", size: 15))
-                        .foregroundStyle(Color.white.opacity(0.76))
+                        .foregroundStyle(BrandPalette.inkSoft)
                 }
 
                 Button(action: onOpenPicker) {
@@ -684,21 +690,22 @@ private struct ReorderThumbnailCardView: View {
 
             Text(String(format: "%02d", item.selectionIndex + 1))
                 .font(.custom("AvenirNextCondensed-Bold", size: 24))
-                .foregroundStyle(.white)
+                .foregroundStyle(BrandPalette.ink)
 
             Text(item.kind == .livePhoto ? "Live Photo" : "Photo")
                 .font(.custom("AvenirNext-DemiBold", size: 13))
-                .foregroundStyle(Color.white.opacity(0.7))
+                .foregroundStyle(BrandPalette.cocoa)
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.white.opacity(0.11))
+                .fill(BrandPalette.ivory.opacity(0.92))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                        .stroke(BrandPalette.line, lineWidth: 1)
                 )
         )
+        .shadow(color: BrandPalette.shadow.opacity(0.08), radius: 16, y: 8)
     }
 }
 
@@ -714,21 +721,21 @@ private struct ExportToggleCardView: View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(BrandPalette.ink)
                 .frame(width: 44, height: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.white.opacity(0.12))
+                        .fill(BrandPalette.cream)
                 )
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.custom("AvenirNext-DemiBold", size: 16))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BrandPalette.ink)
 
                 Text(subtitle)
                     .font(.custom("AvenirNext-Medium", size: 13))
-                    .foregroundStyle(Color.white.opacity(0.66))
+                    .foregroundStyle(BrandPalette.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -740,12 +747,12 @@ private struct ExportToggleCardView: View {
             ))
             .labelsHidden()
             .disabled(!isEnabled)
-            .tint(Color(red: 0.95, green: 0.63, blue: 0.35))
+            .tint(BrandPalette.ink)
         }
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.black.opacity(0.16))
+                .fill(BrandPalette.cream.opacity(0.82))
         )
     }
 }
@@ -759,12 +766,13 @@ private struct GlassPanelView<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .fill(.white.opacity(0.12))
+                    .fill(BrandPalette.ivory.opacity(0.92))
                     .overlay(
                         RoundedRectangle(cornerRadius: 30, style: .continuous)
-                            .stroke(.white.opacity(0.14), lineWidth: 1)
+                            .stroke(BrandPalette.line, lineWidth: 1)
                     )
             )
+            .shadow(color: BrandPalette.shadow.opacity(0.08), radius: 24, y: 12)
     }
 }
 
@@ -774,10 +782,10 @@ private struct MetricPillView: View {
     var body: some View {
         Text(label)
             .font(.custom("AvenirNext-DemiBold", size: 12))
-            .foregroundStyle(.white)
+            .foregroundStyle(BrandPalette.ink)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.white.opacity(0.12), in: Capsule())
+            .background(BrandPalette.cream, in: Capsule())
     }
 }
 
@@ -788,44 +796,45 @@ private struct InfoPillView: View {
     var body: some View {
         Label(title, systemImage: systemImage)
             .font(.custom("AvenirNext-DemiBold", size: 12))
-            .foregroundStyle(.white)
+            .foregroundStyle(BrandPalette.ink)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(.white.opacity(0.12), in: Capsule())
+            .background(BrandPalette.cream, in: Capsule())
     }
 }
 
 private struct AtmosphericBackgroundView: View {
-    let theme: TemplateTheme
-
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [theme.backgroundTop.color, theme.backgroundBottom.color],
+                colors: [BrandPalette.ivory, BrandPalette.cream],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
             Circle()
-                .fill(theme.accent.color.opacity(0.28))
-                .frame(width: 320, height: 320)
-                .blur(radius: 18)
-                .offset(x: 120, y: -260)
+                .fill(BrandPalette.sand.opacity(0.32))
+                .frame(width: 360, height: 360)
+                .blur(radius: 28)
+                .offset(x: 180, y: -260)
 
             Circle()
-                .fill(theme.secondaryAccent.color.opacity(0.20))
-                .frame(width: 280, height: 280)
-                .blur(radius: 28)
-                .offset(x: -150, y: 260)
+                .fill(BrandPalette.ink.opacity(0.08))
+                .frame(width: 320, height: 320)
+                .blur(radius: 34)
+                .offset(x: -170, y: 310)
 
-            Rectangle()
+            RoundedRectangle(cornerRadius: 72, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [.white.opacity(0.03), .clear],
+                        colors: [BrandPalette.ivory.opacity(0.65), .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
+                .frame(width: 280, height: 280)
+                .blur(radius: 16)
+                .offset(x: -110, y: -220)
         }
     }
 }
@@ -887,22 +896,13 @@ private struct PrimaryActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.custom("AvenirNext-DemiBold", size: 16))
-            .foregroundStyle(Color.black.opacity(0.8))
+            .foregroundStyle(BrandPalette.ivory)
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.98, green: 0.79, blue: 0.43),
-                                Color(red: 0.94, green: 0.56, blue: 0.31),
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .shadow(color: .black.opacity(configuration.isPressed ? 0.08 : 0.2), radius: 18, y: 10)
+                    .fill(BrandPalette.ink)
+                    .shadow(color: BrandPalette.shadow.opacity(configuration.isPressed ? 0.08 : 0.18), radius: 18, y: 10)
             )
             .opacity(configuration.isPressed ? 0.9 : 1)
             .scaleEffect(configuration.isPressed ? 0.99 : 1)
@@ -913,15 +913,15 @@ private struct SecondaryActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.custom("AvenirNext-DemiBold", size: 16))
-            .foregroundStyle(.white)
+            .foregroundStyle(BrandPalette.ink)
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.white.opacity(configuration.isPressed ? 0.12 : 0.09))
+                    .fill(BrandPalette.ivory.opacity(configuration.isPressed ? 0.96 : 0.9))
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(.white.opacity(0.15), lineWidth: 1)
+                            .stroke(BrandPalette.line, lineWidth: 1)
                     )
             )
             .opacity(configuration.isPressed ? 0.92 : 1)

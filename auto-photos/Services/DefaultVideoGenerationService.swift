@@ -8,6 +8,7 @@
 @preconcurrency import AVFoundation
 import CoreVideo
 import Foundation
+import ImageIO
 import Photos
 import QuartzCore
 import UIKit
@@ -15,6 +16,19 @@ import UIKit
 private struct PreparedClip {
     let url: URL
     let duration: CMTime
+}
+
+private struct AssetPhotoRepresentation {
+    let image: UIImage
+    let orientation: UIImage.Orientation
+
+    var normalizedImage: UIImage {
+        image.normalized()
+    }
+
+    var isMirrored: Bool {
+        orientation.isMirrored
+    }
 }
 
 final class DefaultVideoGenerationService: VideoGenerationService {
@@ -97,25 +111,34 @@ final class DefaultVideoGenerationService: VideoGenerationService {
     private func makeClip(for item: SelectedMediaItem, duration: TimeInterval) async throws -> PreparedClip {
         switch item.kind {
         case .photo:
-            return try await makeStillClip(from: item.assetLocalIdentifier, duration: duration)
+            let photoRepresentation = try await requestPhotoRepresentation(for: item.assetLocalIdentifier)
+            return try await makeStillClip(from: photoRepresentation, duration: duration)
         case .livePhoto:
+            let photoRepresentation = try await requestPhotoRepresentation(for: item.assetLocalIdentifier)
+
             if let pairedVideoURL = try await exportPairedVideoURL(for: item.assetLocalIdentifier) {
                 defer { try? FileManager.default.removeItem(at: pairedVideoURL) }
 
                 do {
-                    return try await makeNormalizedLiveClip(from: pairedVideoURL, duration: duration)
+                    return try await makeNormalizedLiveClip(
+                        from: pairedVideoURL,
+                        duration: duration,
+                        mirrorHorizontally: photoRepresentation.isMirrored
+                    )
                 } catch {
-                    return try await makeStillClip(from: item.assetLocalIdentifier, duration: duration)
+                    return try await makeStillClip(from: photoRepresentation, duration: duration)
                 }
             }
 
-            return try await makeStillClip(from: item.assetLocalIdentifier, duration: duration)
+            return try await makeStillClip(from: photoRepresentation, duration: duration)
         }
     }
 
-    private func makeStillClip(from assetIdentifier: String, duration: TimeInterval) async throws -> PreparedClip {
-        let image = try await requestOriginalImage(for: assetIdentifier)
-        let renderedImage = image.aspectFilled(to: renderSize)
+    private func makeStillClip(
+        from photoRepresentation: AssetPhotoRepresentation,
+        duration: TimeInterval
+    ) async throws -> PreparedClip {
+        let renderedImage = photoRepresentation.normalizedImage.aspectFilled(to: renderSize)
         let outputURL = makeTemporaryURL(prefix: "auto-photos-photo", pathExtension: "mp4")
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
@@ -182,7 +205,11 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         return PreparedClip(url: outputURL, duration: durationTime)
     }
 
-    private func makeNormalizedLiveClip(from sourceURL: URL, duration: TimeInterval) async throws -> PreparedClip {
+    private func makeNormalizedLiveClip(
+        from sourceURL: URL,
+        duration: TimeInterval,
+        mirrorHorizontally: Bool
+    ) async throws -> PreparedClip {
         let asset = AVURLAsset(url: sourceURL)
         let tracks = try await asset.loadTracks(withMediaType: .video)
 
@@ -216,7 +243,11 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         instruction.timeRange = CMTimeRange(start: .zero, duration: clipDuration)
 
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionTrack)
-        let transform = try await makeAspectFillTransform(for: sourceTrack, renderSize: renderSize)
+        let transform = try await makeAspectFillTransform(
+            for: sourceTrack,
+            renderSize: renderSize,
+            mirrorHorizontally: mirrorHorizontally
+        )
         layerInstruction.setTransform(transform, at: .zero)
         instruction.layerInstructions = [layerInstruction]
         videoComposition.instructions = [instruction]
@@ -419,7 +450,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
     }
 
-    private func requestOriginalImage(for identifier: String) async throws -> UIImage {
+    private func requestPhotoRepresentation(for identifier: String) async throws -> AssetPhotoRepresentation {
         guard let asset = fetchAsset(with: identifier) else {
             throw AutoPhotosError.assetNotFound
         }
@@ -430,7 +461,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         options.isNetworkAccessAllowed = true
 
         return try await withCheckedThrowingContinuation { continuation in
-            imageManager.requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+            imageManager.requestImageDataAndOrientation(for: asset, options: options) { data, _, cgOrientation, info in
                 if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -446,7 +477,25 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                     return
                 }
 
-                continuation.resume(returning: image)
+                let orientation = UIImage.Orientation(cgOrientation)
+                let resolvedImage: UIImage
+
+                if let cgImage = image.cgImage {
+                    resolvedImage = UIImage(
+                        cgImage: cgImage,
+                        scale: image.scale,
+                        orientation: orientation
+                    )
+                } else {
+                    resolvedImage = image
+                }
+
+                continuation.resume(
+                    returning: AssetPhotoRepresentation(
+                        image: resolvedImage,
+                        orientation: orientation
+                    )
+                )
             }
         }
     }
@@ -487,7 +536,11 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
     }
 
-    private func makeAspectFillTransform(for track: AVAssetTrack, renderSize: CGSize) async throws -> CGAffineTransform {
+    private func makeAspectFillTransform(
+        for track: AVAssetTrack,
+        renderSize: CGSize,
+        mirrorHorizontally: Bool
+    ) async throws -> CGAffineTransform {
         let naturalSize = try await track.load(.naturalSize)
         let preferredTransform = try await track.load(.preferredTransform)
 
@@ -507,9 +560,18 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             y: (renderSize.height - scaledSize.height) / 2
         )
 
-        return translatedTransform
+        var finalTransform = translatedTransform
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
             .concatenating(centeringTransform)
+
+        if mirrorHorizontally {
+            finalTransform = finalTransform.concatenating(
+                CGAffineTransform(translationX: renderSize.width, y: 0)
+                    .scaledBy(x: -1, y: 1)
+            )
+        }
+
+        return finalTransform
     }
 
     private func setActiveExportSession(_ session: AVAssetExportSession) {
@@ -573,6 +635,19 @@ final class DefaultVideoGenerationService: VideoGenerationService {
 }
 
 private extension UIImage {
+    func normalized() -> UIImage {
+        guard imageOrientation != .up else {
+            return self
+        }
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
     func aspectFilled(to renderSize: CGSize) -> UIImage {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
@@ -588,6 +663,40 @@ private extension UIImage {
             )
 
             draw(in: CGRect(origin: origin, size: scaledSize))
+        }
+    }
+}
+
+private extension UIImage.Orientation {
+    init(_ orientation: CGImagePropertyOrientation) {
+        switch orientation {
+        case .up:
+            self = .up
+        case .upMirrored:
+            self = .upMirrored
+        case .down:
+            self = .down
+        case .downMirrored:
+            self = .downMirrored
+        case .left:
+            self = .left
+        case .leftMirrored:
+            self = .leftMirrored
+        case .right:
+            self = .right
+        case .rightMirrored:
+            self = .rightMirrored
+        @unknown default:
+            self = .up
+        }
+    }
+
+    var isMirrored: Bool {
+        switch self {
+        case .upMirrored, .downMirrored, .leftMirrored, .rightMirrored:
+            return true
+        default:
+            return false
         }
     }
 }

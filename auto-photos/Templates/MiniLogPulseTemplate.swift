@@ -22,11 +22,11 @@ extension VideoTemplate {
         ),
         textOverlay: nil,
         theme: TemplateTheme(
-            accent: ColorToken(red: 0.94, green: 0.39, blue: 0.29),
-            secondaryAccent: ColorToken(red: 0.98, green: 0.77, blue: 0.38),
-            surface: ColorToken(red: 0.97, green: 0.94, blue: 0.90),
-            backgroundTop: ColorToken(red: 0.14, green: 0.15, blue: 0.22),
-            backgroundBottom: ColorToken(red: 0.31, green: 0.21, blue: 0.30)
+            accent: ColorToken(red: 0.22, green: 0.19, blue: 0.18),
+            secondaryAccent: ColorToken(red: 0.83, green: 0.77, blue: 0.71),
+            surface: ColorToken(red: 0.97, green: 0.95, blue: 0.92),
+            backgroundTop: ColorToken(red: 0.98, green: 0.97, blue: 0.95),
+            backgroundBottom: ColorToken(red: 0.91, green: 0.87, blue: 0.83)
         )
     )
 }
