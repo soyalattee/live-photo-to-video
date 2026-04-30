@@ -264,7 +264,7 @@ private struct SelectionReviewView: View {
     let onReset: () -> Void
 
     @State private var draggedItem: SelectedMediaItem?
-    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -296,9 +296,10 @@ private struct SelectionReviewView: View {
                 }
             }
 
-            LazyVGrid(columns: gridColumns, spacing: 12) {
+            LazyVGrid(columns: gridColumns, spacing: 16) {
                 ForEach(items) { item in
                     ReorderThumbnailCardView(item: item)
+                        .padding(.horizontal, 4)
                         .onDrag {
                             draggedItem = item
                             return NSItemProvider(object: NSString(string: item.id.uuidString))
@@ -1044,31 +1045,42 @@ private struct ReorderThumbnailCardView: View {
     let item: SelectedMediaItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             Image(uiImage: item.thumbnail)
                 .resizable()
                 .scaledToFill()
                 .frame(maxWidth: .infinity)
                 .aspectRatio(0.72, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 24,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 24,
+                        style: .continuous
+                    )
+                )
                 .overlay(alignment: .topTrailing) {
                     Image(systemName: "line.3.horizontal")
                         .font(.system(size: 12, weight: .bold))
-                        .padding(8)
+                        .padding(7)
                         .background(.black.opacity(0.42), in: Capsule())
                         .foregroundStyle(.white)
-                        .padding(10)
+                        .padding(8)
                 }
 
-            Text(String(format: "%02d", item.selectionIndex + 1))
-                .font(.custom("AvenirNextCondensed-Bold", size: 22))
-                .foregroundStyle(BrandPalette.ink)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(String(format: "%02d", item.selectionIndex + 1))
+                    .font(.custom("AvenirNextCondensed-Bold", size: 20))
+                    .foregroundStyle(BrandPalette.ink)
 
-            Text(item.kind == .livePhoto ? "Live Photo" : "Photo")
-                .font(.custom("AvenirNext-DemiBold", size: 12))
-                .foregroundStyle(BrandPalette.cocoa)
+                Text(item.kind == .livePhoto ? "Live Photo" : "Photo")
+                    .font(.custom("AvenirNext-DemiBold", size: 11))
+                    .foregroundStyle(BrandPalette.cocoa)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
         }
-        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -1078,7 +1090,7 @@ private struct ReorderThumbnailCardView: View {
                         .stroke(BrandPalette.line, lineWidth: 1)
                 )
         )
-        .shadow(color: BrandPalette.shadow.opacity(0.08), radius: 16, y: 8)
+        .shadow(color: BrandPalette.shadow.opacity(0.05), radius: 10, y: 4)
     }
 }
 
