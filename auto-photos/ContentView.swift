@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var viewModel: AutoPhotosViewModel
     @State private var isPickerPresented = false
+    @State private var isTemplateEditorPresented = false
 
     @MainActor
     init() {
@@ -61,6 +62,21 @@ struct ContentView: View {
         .sheet(item: $viewModel.shareSheetPayload, onDismiss: viewModel.dismissShareSheet) { payload in
             ShareSheetView(items: [payload.url])
         }
+        .sheet(isPresented: $isTemplateEditorPresented) {
+            TemplateCreationSheet(
+                onCancel: {
+                    isTemplateEditorPresented = false
+                },
+                onSave: { draft in
+                    do {
+                        try viewModel.addCustomTemplate(from: draft)
+                        isTemplateEditorPresented = false
+                    } catch {
+                        viewModel.alertInfo = AlertInfo(title: "템플릿 추가 실패", message: error.localizedDescription)
+                    }
+                }
+            )
+        }
     }
 
     @ViewBuilder
@@ -72,6 +88,9 @@ struct ContentView: View {
                 selectedTemplate: viewModel.selectedTemplate,
                 canOpenPicker: viewModel.canOpenPicker,
                 onSelectTemplate: viewModel.selectTemplate,
+                onCreateTemplate: {
+                    isTemplateEditorPresented = true
+                },
                 onOpenPicker: {
                     isPickerPresented = true
                 }
@@ -136,21 +155,42 @@ struct ContentView: View {
     }
 
     private var headerSection: some View {
-        HStack(alignment: .center, spacing: 20) {
-            BrandLogoView(size: 96)
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 14) {
+                BrandLogoView(size: 78)
 
-            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("miniLog")
+                        .font(.custom("AvenirNextCondensed-Bold", size: 30))
+                        .foregroundStyle(BrandPalette.ink)
+
+                    Text("Cherry-toned template studio")
+                        .font(.custom("AvenirNext-DemiBold", size: 13))
+                        .foregroundStyle(BrandPalette.cocoa)
+                        .tracking(0.6)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
                 Text("Template-Driven\nLive Photo Studio")
-                    .font(.custom("AvenirNextCondensed-Bold", size: 36))
+                    .font(.custom("AvenirNextCondensed-Bold", size: 40))
                     .foregroundStyle(BrandPalette.ink)
-                    .lineSpacing(-2)
+                    .lineSpacing(-3)
 
-                Text("로고의 무드처럼 깔끔하고 부드러운 톤으로, 사진을 골라 순서를 다듬고 감도 있게 숏폼으로 완성해보세요.")
+                Text("로고의 무드처럼 깔끔하고 부드러운 톤으로, 사진을 고르고 순서를 다듬은 뒤 감도 있는 세로 숏폼으로 완성해보세요.")
                     .font(.custom("AvenirNext-Medium", size: 15))
                     .foregroundStyle(BrandPalette.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
+            }
 
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
+                    InfoPillView(title: "Template First", systemImage: "square.grid.2x2.fill")
+                    InfoPillView(title: "Drag Reorder", systemImage: "hand.draw.fill")
+                    InfoPillView(title: "9:16 MP4", systemImage: "rectangle.portrait.fill")
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
                     InfoPillView(title: "Template First", systemImage: "square.grid.2x2.fill")
                     InfoPillView(title: "Drag Reorder", systemImage: "hand.draw.fill")
                     InfoPillView(title: "9:16 MP4", systemImage: "rectangle.portrait.fill")
@@ -175,6 +215,7 @@ private struct HomeStateView: View {
     let selectedTemplate: VideoTemplate?
     let canOpenPicker: Bool
     let onSelectTemplate: (VideoTemplate) -> Void
+    let onCreateTemplate: () -> Void
     let onOpenPicker: () -> Void
 
     var body: some View {
@@ -200,6 +241,12 @@ private struct HomeStateView: View {
                 isButtonEnabled: selectedTemplate != nil && canOpenPicker,
                 onOpenPicker: onOpenPicker
             )
+
+            Button(action: onCreateTemplate) {
+                Label("템플릿 추가", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SecondaryActionButtonStyle())
         }
     }
 }
@@ -289,6 +336,331 @@ private struct SelectionReviewView: View {
                 .buttonStyle(.plain)
                 .font(.custom("AvenirNext-Medium", size: 15))
                 .foregroundStyle(Color.white.opacity(0.74))
+        }
+    }
+}
+
+private struct TemplateCreationSheet: View {
+    let onCancel: () -> Void
+    let onSave: (TemplateDraft) -> Void
+
+    @State private var draft = TemplateDraft()
+    @State private var isAudioImporterPresented = false
+
+    private var parsedClipCount: Int {
+        draft.parsedClipDurations.count
+    }
+
+    private var clipCountTint: Color {
+        parsedClipCount == draft.photoCount
+            ? Color(red: 0.31, green: 0.49, blue: 0.34)
+            : Color(red: 0.63, green: 0.34, blue: 0.27)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    TemplateEditorCard(title: "기본 정보", subtitle: "템플릿 제목, 사용할 사진 수, 컷 길이를 입력하세요.") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            TextField("예: Spring Diary", text: $draft.title)
+                                .font(.custom("AvenirNext-Medium", size: 16))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                            Stepper(value: $draft.photoCount, in: 1...SelectionRules.librarySelectionUpperBound) {
+                                HStack {
+                                    Text("필요 사진 수")
+                                    Spacer()
+                                    Text("\(draft.photoCount)장")
+                                        .foregroundStyle(BrandPalette.cocoa)
+                                }
+                                .font(.custom("AvenirNext-DemiBold", size: 15))
+                                .foregroundStyle(BrandPalette.ink)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("컷 길이")
+                                        .font(.custom("AvenirNext-DemiBold", size: 15))
+                                        .foregroundStyle(BrandPalette.ink)
+                                    Spacer()
+                                    Text("\(parsedClipCount)/\(draft.photoCount)")
+                                        .font(.custom("AvenirNext-DemiBold", size: 13))
+                                        .foregroundStyle(clipCountTint)
+                                }
+
+                                TextField("2.0, 2.1, 2.0", text: $draft.clipDurationsText, axis: .vertical)
+                                    .font(.custom("AvenirNext-Medium", size: 15))
+                                    .lineLimit(4...8)
+                                    .padding(16)
+                                    .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                                HStack {
+                                    Text("쉼표 또는 줄바꿈으로 구분해주세요.")
+                                        .font(.custom("AvenirNext-Medium", size: 13))
+                                        .foregroundStyle(BrandPalette.inkSoft)
+
+                                    Spacer()
+
+                                    Button("기본값 채우기") {
+                                        draft.clipDurationsText = Array(repeating: "2.0", count: draft.photoCount).joined(separator: ", ")
+                                    }
+                                    .font(.custom("AvenirNext-DemiBold", size: 13))
+                                    .foregroundStyle(BrandPalette.cocoa)
+                                }
+                            }
+                        }
+                    }
+
+                    TemplateEditorCard(title: "노래 파일", subtitle: "파일 앱에서 오디오를 가져오면 템플릿에 고정 BGM으로 저장됩니다.") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Button(action: {
+                                isAudioImporterPresented = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "waveform.badge.plus")
+                                    Text(draft.audioImportURL == nil ? "오디오 파일 선택" : "오디오 다시 선택")
+                                    Spacer()
+                                }
+                                .font(.custom("AvenirNext-DemiBold", size: 15))
+                                .foregroundStyle(BrandPalette.ink)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+
+                            if !draft.audioDisplayName.isEmpty {
+                                HStack {
+                                    Text(draft.audioDisplayName)
+                                        .font(.custom("AvenirNext-Medium", size: 14))
+                                        .foregroundStyle(BrandPalette.ink)
+
+                                    Spacer()
+
+                                    Button("제거") {
+                                        draft.audioImportURL = nil
+                                        draft.audioDisplayName = ""
+                                    }
+                                    .font(.custom("AvenirNext-DemiBold", size: 13))
+                                    .foregroundStyle(Color(red: 0.63, green: 0.34, blue: 0.27))
+                                }
+                            }
+                        }
+                    }
+
+                    TemplateEditorCard(title: "텍스트 오버레이", subtitle: "텍스트를 켜면 문구, 노출 시간, 폰트, 위치를 함께 설정할 수 있어요.") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Toggle("텍스트 사용", isOn: $draft.includesText)
+                                .tint(BrandPalette.ink)
+                                .font(.custom("AvenirNext-DemiBold", size: 15))
+                                .foregroundStyle(BrandPalette.ink)
+
+                            if draft.includesText {
+                                TextField("예: miniLog", text: $draft.text, axis: .vertical)
+                                    .font(.custom("AvenirNext-Medium", size: 15))
+                                    .lineLimit(2...4)
+                                    .padding(16)
+                                    .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                                HStack(spacing: 12) {
+                                    TemplateMetricEditor(label: "시작", value: $draft.textStartTime)
+                                    TemplateMetricEditor(label: "종료", value: $draft.textEndTime)
+                                }
+
+                                Picker("폰트", selection: $draft.fontName) {
+                                    ForEach(TemplateFontPreset.presets) { preset in
+                                        Text(preset.name).tag(preset.fontName)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .font(.custom("AvenirNext-DemiBold", size: 15))
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("폰트 크기")
+                                        Spacer()
+                                        Text("\(Int(draft.fontSize))pt")
+                                    }
+                                    .font(.custom("AvenirNext-DemiBold", size: 15))
+                                    .foregroundStyle(BrandPalette.ink)
+
+                                    Slider(value: $draft.fontSize, in: 28...96, step: 1)
+                                        .tint(BrandPalette.ink)
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("가로 위치")
+                                        Spacer()
+                                        Text("\(Int(draft.textPositionX * 100))%")
+                                    }
+                                    .font(.custom("AvenirNext-DemiBold", size: 15))
+                                    .foregroundStyle(BrandPalette.ink)
+
+                                    Slider(value: $draft.textPositionX, in: 0.1...0.9, step: 0.01)
+                                        .tint(BrandPalette.ink)
+
+                                    HStack {
+                                        Text("세로 위치")
+                                        Spacer()
+                                        Text("\(Int(draft.textPositionY * 100))%")
+                                    }
+                                    .font(.custom("AvenirNext-DemiBold", size: 15))
+                                    .foregroundStyle(BrandPalette.ink)
+
+                                    Slider(value: $draft.textPositionY, in: 0.08...0.92, step: 0.01)
+                                        .tint(BrandPalette.ink)
+                                }
+
+                                TemplateTextPositionPreview(draft: draft)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(
+                LinearGradient(
+                    colors: [BrandPalette.ivory, BrandPalette.cream],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            )
+            .navigationTitle("템플릿 추가")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기", action: onCancel)
+                        .foregroundStyle(BrandPalette.ink)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("저장") {
+                        onSave(draft)
+                    }
+                    .font(.custom("AvenirNext-DemiBold", size: 16))
+                    .foregroundStyle(BrandPalette.ink)
+                }
+            }
+            .fileImporter(
+                isPresented: $isAudioImporterPresented,
+                allowedContentTypes: [.audio],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case let .success(urls):
+                    guard let url = urls.first else { return }
+                    draft.audioImportURL = url
+                    draft.audioDisplayName = url.lastPathComponent
+                case .failure:
+                    break
+                }
+            }
+        }
+    }
+}
+
+private struct TemplateEditorCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.custom("AvenirNextCondensed-DemiBold", size: 24))
+                    .foregroundStyle(BrandPalette.ink)
+
+                Text(subtitle)
+                    .font(.custom("AvenirNext-Medium", size: 14))
+                    .foregroundStyle(BrandPalette.inkSoft)
+            }
+
+            content
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(BrandPalette.ivory.opacity(0.94))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(BrandPalette.line, lineWidth: 1)
+                )
+        )
+        .shadow(color: BrandPalette.shadow.opacity(0.08), radius: 18, y: 10)
+    }
+}
+
+private struct TemplateMetricEditor: View {
+    let label: String
+    @Binding var value: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label)
+                .font(.custom("AvenirNext-DemiBold", size: 15))
+                .foregroundStyle(BrandPalette.ink)
+
+            Stepper(value: $value, in: 0...30, step: 0.5) {
+                Text(String(format: "%.1fs", value))
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .foregroundStyle(BrandPalette.cocoa)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+private struct TemplateTextPositionPreview: View {
+    let draft: TemplateDraft
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("텍스트 위치 미리보기")
+                .font(.custom("AvenirNext-DemiBold", size: 15))
+                .foregroundStyle(BrandPalette.ink)
+
+            GeometryReader { proxy in
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(LinearGradient(
+                            colors: [BrandPalette.ink.opacity(0.92), BrandPalette.cocoa.opacity(0.82)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.14))
+                        .frame(width: proxy.size.width * 0.7, height: 56)
+                        .position(
+                            x: proxy.size.width * draft.textPositionX,
+                            y: proxy.size.height * draft.textPositionY
+                        )
+                        .overlay {
+                            Text(draft.text.isEmpty ? "miniLog" : draft.text)
+                                .font(.custom(draft.fontName, size: CGFloat(min(draft.fontSize * 0.35, 28))))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                        }
+                }
+            }
+            .frame(height: 220)
         }
     }
 }

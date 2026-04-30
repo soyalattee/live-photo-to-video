@@ -14,7 +14,7 @@ import UIKit
 @MainActor
 final class AutoPhotosViewModel: ObservableObject {
     @Published var generationState: GenerationState = .idle
-    @Published var templates: [VideoTemplate] = TemplateCatalog.templates
+    @Published var templates: [VideoTemplate] = []
     @Published var selectedTemplate: VideoTemplate?
     @Published var selectedItems: [SelectedMediaItem] = []
     @Published var exportOptions: VideoRenderOptions = .none
@@ -29,6 +29,7 @@ final class AutoPhotosViewModel: ObservableObject {
     private let photoLibraryService: PhotoLibraryService
     private let videoGenerationService: VideoGenerationService
     private let videoSaveService: VideoSaveService
+    private let templateLibraryService: TemplateLibraryService
 
     private var recoveryDestination: ErrorRecoveryDestination = .home
     private var generationTask: Task<Void, Never>?
@@ -37,11 +38,17 @@ final class AutoPhotosViewModel: ObservableObject {
     init(
         photoLibraryService: PhotoLibraryService,
         videoGenerationService: VideoGenerationService,
-        videoSaveService: VideoSaveService
+        videoSaveService: VideoSaveService,
+        templateLibraryService: TemplateLibraryService
     ) {
         self.photoLibraryService = photoLibraryService
         self.videoGenerationService = videoGenerationService
         self.videoSaveService = videoSaveService
+        self.templateLibraryService = templateLibraryService
+        self.templates = Self.mergeTemplates(
+            builtInTemplates: TemplateCatalog.templates,
+            customTemplates: templateLibraryService.loadCustomTemplates()
+        )
     }
 
     var pickerSelectionLimit: Int {
@@ -106,7 +113,7 @@ final class AutoPhotosViewModel: ObservableObject {
         }
 
         if selectedTemplate.supportsMusic && !selectedTemplate.isMusicAvailable {
-            return "BGM 파일을 앱 번들에 추가하면 노래 옵션이 자동으로 활성화돼요."
+            return "템플릿 BGM 파일을 다시 연결하면 노래 옵션이 자동으로 활성화돼요."
         }
 
         if !selectedTemplate.supportsText {
@@ -138,6 +145,69 @@ final class AutoPhotosViewModel: ObservableObject {
             pickerResetToken = UUID()
             cleanupRenderedVideos()
         }
+    }
+
+    func addCustomTemplate(from draft: TemplateDraft) throws {
+        let normalizedTitle = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            throw TemplateDraftError.emptyTitle
+        }
+
+        guard (1...SelectionRules.librarySelectionUpperBound).contains(draft.photoCount) else {
+            throw TemplateDraftError.invalidPhotoCount
+        }
+
+        let clipDurations = draft.parsedClipDurations
+        guard clipDurations.count == draft.photoCount else {
+            throw TemplateDraftError.invalidClipDurations(expected: draft.photoCount, actual: clipDurations.count)
+        }
+
+        guard clipDurations.allSatisfy({ $0 > 0 }) else {
+            throw TemplateDraftError.nonPositiveDuration
+        }
+
+        let audioTrack = try draft.audioImportURL.map { try templateLibraryService.importAudioTrack(from: $0) }
+
+        let textOverlay: TemplateTextOverlay?
+        if draft.includesText {
+            guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw TemplateDraftError.emptyText
+            }
+
+            guard draft.textEndTime > draft.textStartTime else {
+                throw TemplateDraftError.invalidTextTiming
+            }
+
+            textOverlay = TemplateTextOverlay(
+                text: draft.text,
+                startTime: draft.textStartTime,
+                endTime: draft.textEndTime,
+                fontName: draft.fontName,
+                fontSize: draft.fontSize,
+                position: TemplateTextPosition(x: draft.textPositionX, y: draft.textPositionY)
+            )
+        } else {
+            textOverlay = nil
+        }
+
+        let template = VideoTemplate(
+            id: "custom-\(UUID().uuidString)",
+            name: normalizedTitle,
+            tagline: "\(draft.photoCount)컷 커스텀 템플릿",
+            description: draft.summaryDescription,
+            photoCount: draft.photoCount,
+            clipDurations: clipDurations,
+            audioTrack: audioTrack,
+            textOverlay: textOverlay,
+            theme: .brandDefault
+        )
+
+        try templateLibraryService.saveCustomTemplate(template)
+        templates = Self.mergeTemplates(
+            builtInTemplates: TemplateCatalog.templates,
+            customTemplates: templateLibraryService.loadCustomTemplates()
+        )
+        selectTemplate(template)
     }
 
     func handlePickerResults(_ results: [PHPickerResult]) async {
@@ -426,6 +496,13 @@ final class AutoPhotosViewModel: ObservableObject {
             )
         }
     }
+
+    private static func mergeTemplates(
+        builtInTemplates: [VideoTemplate],
+        customTemplates: [VideoTemplate]
+    ) -> [VideoTemplate] {
+        builtInTemplates + customTemplates
+    }
 }
 
 @MainActor
@@ -438,7 +515,8 @@ enum AppBootstrap {
         return AutoPhotosViewModel(
             photoLibraryService: DefaultPhotoLibraryService(),
             videoGenerationService: DefaultVideoGenerationService(),
-            videoSaveService: DefaultVideoSaveService()
+            videoSaveService: DefaultVideoSaveService(),
+            templateLibraryService: DefaultTemplateLibraryService()
         )
     }
 
@@ -472,7 +550,8 @@ enum AppBootstrap {
         let viewModel = AutoPhotosViewModel(
             photoLibraryService: StubPhotoLibraryService(),
             videoGenerationService: StubVideoGenerationService(),
-            videoSaveService: StubVideoSaveService()
+            videoSaveService: StubVideoSaveService(),
+            templateLibraryService: StubTemplateLibraryService()
         )
 
         let template = TemplateCatalog.templates[0]
@@ -515,6 +594,18 @@ enum AppBootstrap {
 private struct StubPhotoLibraryService: PhotoLibraryService {
     func resolveSelection(from assetIdentifiers: [String]) async throws -> [SelectedMediaItem] {
         []
+    }
+}
+
+private struct StubTemplateLibraryService: TemplateLibraryService {
+    func loadCustomTemplates() -> [VideoTemplate] {
+        []
+    }
+
+    func saveCustomTemplate(_ template: VideoTemplate) throws {}
+
+    func importAudioTrack(from sourceURL: URL) throws -> TemplateAudioTrack {
+        .imported(title: sourceURL.deletingPathExtension().lastPathComponent, resourceName: "stub-audio", fileExtension: "m4a")
     }
 }
 

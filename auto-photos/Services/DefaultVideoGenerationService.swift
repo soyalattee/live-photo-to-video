@@ -298,7 +298,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             return
         }
 
-        guard let audioURL = request.template.audioTrack?.bundleURL else {
+        guard let audioURL = request.template.audioTrack?.assetURL else {
             return
         }
 
@@ -370,14 +370,27 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         videoLayer.frame = CGRect(origin: .zero, size: renderSize)
         parentLayer.addSublayer(videoLayer)
 
+        let textSize = CGSize(width: renderSize.width * 0.82, height: 132)
+        let textOrigin = CGPoint(
+            x: (renderSize.width * overlay.position.normalizedX) - (textSize.width / 2),
+            y: (renderSize.height * overlay.position.normalizedY) - (textSize.height / 2)
+        )
+
+        let textFrame = CGRect(
+            x: min(max(textOrigin.x, 48), renderSize.width - textSize.width - 48),
+            y: min(max(textOrigin.y, 48), renderSize.height - textSize.height - 48),
+            width: textSize.width,
+            height: textSize.height
+        )
+
         let textBackgroundLayer = CALayer()
-        textBackgroundLayer.frame = CGRect(x: 72, y: 188, width: 936, height: 160)
+        textBackgroundLayer.frame = textFrame.insetBy(dx: -18, dy: -10)
         textBackgroundLayer.backgroundColor = UIColor.black.withAlphaComponent(0.18).cgColor
         textBackgroundLayer.cornerRadius = 42
         parentLayer.addSublayer(textBackgroundLayer)
 
         let textLayer = CATextLayer()
-        textLayer.frame = CGRect(x: 96, y: 214, width: 888, height: 110)
+        textLayer.frame = textFrame
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
         textLayer.isWrapped = true
@@ -385,7 +398,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         textLayer.string = NSAttributedString(
             string: overlay.text,
             attributes: [
-                .font: UIFont(name: "AvenirNextCondensed-DemiBold", size: 74) ?? UIFont.boldSystemFont(ofSize: 74),
+                .font: UIFont(name: overlay.fontName, size: overlay.fontSize)
+                    ?? UIFont.boldSystemFont(ofSize: overlay.fontSize),
                 .foregroundColor: UIColor.white,
                 .kern: 1.6,
             ]

@@ -15,11 +15,7 @@ extension VideoTemplate {
         description: "조금 더 유연한 템포로 12장의 순간을 자연스럽게 이어 붙이는 템플릿",
         photoCount: 12,
         clipDurations: [2.3, 2.0, 2.3, 2.0, 2.3, 2.3, 2.0, 2.3, 2.0, 2.3, 2.6, 2.4],
-        audioTrack: TemplateAudioTrack(
-            title: "song01",
-            bundleResourceName: "song01",
-            fileExtension: "wav"
-        ),
+        audioTrack: .bundled(title: "song01", resourceName: "song01", fileExtension: "wav"),
         textOverlay: nil,
         theme: TemplateTheme(
             accent: ColorToken(red: 0.35, green: 0.31, blue: 0.29),
