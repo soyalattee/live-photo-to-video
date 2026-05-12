@@ -396,6 +396,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "생성한 영상을 사진 앱에 저장하기 위해 권한이 필요합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "사진과 Live Photo를 선택해 영상을 만들기 위해 사진 접근이 필요합니다.";
+				INFOPLIST_KEY_UIAppFonts = "Resources/Fonts/SDKukdetopokki-aLt.otf Resources/Fonts/SDKukdetopokki-bBd.otf";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -431,6 +432,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "생성한 영상을 사진 앱에 저장하기 위해 권한이 필요합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "사진과 Live Photo를 선택해 영상을 만들기 위해 사진 접근이 필요합니다.";
+				INFOPLIST_KEY_UIAppFonts = "Resources/Fonts/SDKukdetopokki-aLt.otf Resources/Fonts/SDKukdetopokki-bBd.otf";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

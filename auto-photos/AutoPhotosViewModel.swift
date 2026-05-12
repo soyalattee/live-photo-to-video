@@ -68,12 +68,28 @@ final class AutoPhotosViewModel: ObservableObject {
             return "템플릿을 선택해주세요"
         }
 
+        if selectedTemplate.usesSelectionCount {
+            if let maximumSelectionCount = selectedTemplate.maximumSelectionCount {
+                return "\(selectedItems.count)/\(maximumSelectionCount)장 선택"
+            }
+
+            return "\(selectedItems.count)장 선택"
+        }
+
         return "\(selectedItems.count)/\(selectedTemplate.photoCount)장 선택"
     }
 
     var estimatedDurationText: String {
         guard let selectedTemplate else {
             return "템플릿을 먼저 고르면 예상 길이를 보여드려요."
+        }
+
+        if selectedTemplate.usesSelectionCount {
+            guard !selectedItems.isEmpty else {
+                return selectedTemplate.dynamicDurationHint ?? "선택한 모든 사진 길이를 자동으로 맞춰드려요."
+            }
+
+            return String(format: "예상 길이 %.1f초", selectedTemplate.totalDuration(for: selectedItems.count))
         }
 
         return String(format: "예상 길이 %.1f초", selectedTemplate.totalDuration)
@@ -147,7 +163,7 @@ final class AutoPhotosViewModel: ObservableObject {
         }
     }
 
-    func addCustomTemplate(from draft: TemplateDraft) throws {
+    func saveCustomTemplate(from draft: TemplateDraft) throws {
         let normalizedTitle = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTitle.isEmpty else {
             throw TemplateDraftError.emptyTitle
@@ -166,7 +182,12 @@ final class AutoPhotosViewModel: ObservableObject {
             throw TemplateDraftError.nonPositiveDuration
         }
 
-        let audioTrack = try draft.audioImportURL.map { try templateLibraryService.importAudioTrack(from: $0) }
+        let audioTrack: TemplateAudioTrack?
+        if let audioImportURL = draft.audioImportURL {
+            audioTrack = try templateLibraryService.importAudioTrack(from: audioImportURL)
+        } else {
+            audioTrack = draft.existingAudioTrack
+        }
 
         let textOverlay: TemplateTextOverlay?
         if draft.includesText {
@@ -191,7 +212,7 @@ final class AutoPhotosViewModel: ObservableObject {
         }
 
         let template = VideoTemplate(
-            id: "custom-\(UUID().uuidString)",
+            id: draft.templateID ?? "custom-\(UUID().uuidString)",
             name: normalizedTitle,
             tagline: "\(draft.photoCount)컷 커스텀 템플릿",
             description: draft.summaryDescription,
@@ -203,11 +224,21 @@ final class AutoPhotosViewModel: ObservableObject {
         )
 
         try templateLibraryService.saveCustomTemplate(template)
-        templates = Self.mergeTemplates(
-            builtInTemplates: TemplateCatalog.templates,
-            customTemplates: templateLibraryService.loadCustomTemplates()
-        )
+        refreshTemplates()
         selectTemplate(template)
+    }
+
+    func deleteCustomTemplate(_ template: VideoTemplate) throws {
+        guard template.isCustomTemplate else {
+            return
+        }
+
+        try templateLibraryService.deleteCustomTemplate(id: template.id)
+        refreshTemplates()
+
+        if selectedTemplate?.id == template.id {
+            resetToHome()
+        }
     }
 
     func handlePickerResults(_ results: [PHPickerResult]) async {
@@ -238,7 +269,10 @@ final class AutoPhotosViewModel: ObservableObject {
             }
 
             let resolvedItems = try await photoLibraryService.resolveSelection(from: identifiers)
-            applyResolvedSelection(Array(resolvedItems.prefix(selectedTemplate.photoCount)))
+            let limitedItems = selectedTemplate.usesSelectionCount
+                ? Array(resolvedItems.prefix(selectedTemplate.maximumSelectionCount ?? resolvedItems.count))
+                : Array(resolvedItems.prefix(selectedTemplate.photoCount))
+            applyResolvedSelection(limitedItems)
         } catch is CancellationError {
             return
         } catch {
@@ -293,6 +327,20 @@ final class AutoPhotosViewModel: ObservableObject {
         let insertionIndex = destinationIndex > sourceIndex ? max(destinationIndex - 1, 0) : destinationIndex
         updatedItems.insert(movingItem, at: insertionIndex)
         selectedItems = reindexed(updatedItems)
+    }
+
+    func removeItem(_ item: SelectedMediaItem) {
+        selectedItems.removeAll { $0.id == item.id }
+        selectedItems = reindexed(selectedItems)
+
+        if selectedItems.isEmpty {
+            generationState = .idle
+        } else if case .preview = generationState {
+            generationState = .selectionReview
+        }
+
+        cleanupRenderedVideos()
+        toastMessage = nil
     }
 
     func handleSelectionResolutionFailure(_ error: Error) {
@@ -497,6 +545,13 @@ final class AutoPhotosViewModel: ObservableObject {
         }
     }
 
+    private func refreshTemplates() {
+        templates = Self.mergeTemplates(
+            builtInTemplates: TemplateCatalog.templates,
+            customTemplates: templateLibraryService.loadCustomTemplates()
+        )
+    }
+
     private static func mergeTemplates(
         builtInTemplates: [VideoTemplate],
         customTemplates: [VideoTemplate]
@@ -554,7 +609,7 @@ enum AppBootstrap {
             templateLibraryService: StubTemplateLibraryService()
         )
 
-        let template = TemplateCatalog.templates[0]
+        let template = TemplateCatalog.templates.first(where: { !$0.usesSelectionCount }) ?? TemplateCatalog.templates[0]
 
         switch scenario {
         case .home:
@@ -603,6 +658,8 @@ private struct StubTemplateLibraryService: TemplateLibraryService {
     }
 
     func saveCustomTemplate(_ template: VideoTemplate) throws {}
+
+    func deleteCustomTemplate(id: String) throws {}
 
     func importAudioTrack(from sourceURL: URL) throws -> TemplateAudioTrack {
         .imported(title: sourceURL.deletingPathExtension().lastPathComponent, resourceName: "stub-audio", fileExtension: "m4a")

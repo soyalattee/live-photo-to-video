@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var viewModel: AutoPhotosViewModel
     @State private var isPickerPresented = false
-    @State private var isTemplateEditorPresented = false
+    @State private var templateEditorContext: TemplateEditorContext?
 
     @MainActor
     init() {
@@ -62,17 +62,18 @@ struct ContentView: View {
         .sheet(item: $viewModel.shareSheetPayload, onDismiss: viewModel.dismissShareSheet) { payload in
             ShareSheetView(items: [payload.url])
         }
-        .sheet(isPresented: $isTemplateEditorPresented) {
+        .sheet(item: $templateEditorContext) { context in
             TemplateCreationSheet(
+                initialDraft: context.draft,
                 onCancel: {
-                    isTemplateEditorPresented = false
+                    templateEditorContext = nil
                 },
                 onSave: { draft in
                     do {
-                        try viewModel.addCustomTemplate(from: draft)
-                        isTemplateEditorPresented = false
+                        try viewModel.saveCustomTemplate(from: draft)
+                        templateEditorContext = nil
                     } catch {
-                        viewModel.alertInfo = AlertInfo(title: "템플릿 추가 실패", message: error.localizedDescription)
+                        viewModel.alertInfo = AlertInfo(title: "템플릿 저장 실패", message: error.localizedDescription)
                     }
                 }
             )
@@ -89,7 +90,17 @@ struct ContentView: View {
                 canOpenPicker: viewModel.canOpenPicker,
                 onSelectTemplate: viewModel.selectTemplate,
                 onCreateTemplate: {
-                    isTemplateEditorPresented = true
+                    templateEditorContext = TemplateEditorContext(draft: TemplateDraft())
+                },
+                onEditTemplate: { template in
+                    templateEditorContext = TemplateEditorContext(draft: TemplateDraft(template: template))
+                },
+                onDeleteTemplate: { template in
+                    do {
+                        try viewModel.deleteCustomTemplate(template)
+                    } catch {
+                        viewModel.alertInfo = AlertInfo(title: "템플릿 삭제 실패", message: error.localizedDescription)
+                    }
                 },
                 onOpenPicker: {
                     isPickerPresented = true
@@ -105,6 +116,7 @@ struct ContentView: View {
                     validationMessage: viewModel.validationMessage,
                     canGenerate: viewModel.canGenerate,
                     onMoveItem: viewModel.moveItem,
+                    onDeleteItem: viewModel.removeItem,
                     onGenerate: viewModel.startGeneration,
                     onReselect: {
                         isPickerPresented = true
@@ -210,19 +222,35 @@ struct ContentView: View {
     }
 }
 
+private struct TemplateEditorContext: Identifiable {
+    let id = UUID()
+    let draft: TemplateDraft
+}
+
 private struct HomeStateView: View {
     let templates: [VideoTemplate]
     let selectedTemplate: VideoTemplate?
     let canOpenPicker: Bool
     let onSelectTemplate: (VideoTemplate) -> Void
     let onCreateTemplate: () -> Void
+    let onEditTemplate: (VideoTemplate) -> Void
+    let onDeleteTemplate: (VideoTemplate) -> Void
     let onOpenPicker: () -> Void
+
+    @State private var pendingDeleteTemplate: VideoTemplate?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("템플릿 선택")
-                .font(.custom("AvenirNextCondensed-DemiBold", size: 28))
-                .foregroundStyle(BrandPalette.ink)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("템플릿 선택")
+                    .font(.custom("AvenirNextCondensed-DemiBold", size: 28))
+                    .foregroundStyle(BrandPalette.ink)
+
+                Text("사진은 대표 음식이나 공간으로 시작하고, 음식을 가르거나 햇빛과 커튼이 흔들리는 훅 장면을 지나, 마지막엔 먹는 장면이나 디테일 컷처럼 감정이입되는 순간으로 이어가면 더 자연스러워요.")
+                    .font(.custom("AvenirNext-Medium", size: 14))
+                    .foregroundStyle(BrandPalette.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             VStack(spacing: 14) {
                 ForEach(templates) { template in
@@ -231,7 +259,13 @@ private struct HomeStateView: View {
                         isSelected: selectedTemplate?.id == template.id,
                         onSelect: {
                             onSelectTemplate(template)
-                        }
+                        },
+                        onEdit: template.isCustomTemplate ? {
+                            onEditTemplate(template)
+                        } : nil,
+                        onDelete: template.isCustomTemplate ? {
+                            pendingDeleteTemplate = template
+                        } : nil
                     )
                 }
             }
@@ -248,6 +282,16 @@ private struct HomeStateView: View {
             }
             .buttonStyle(SecondaryActionButtonStyle())
         }
+        .alert(item: $pendingDeleteTemplate) { template in
+            Alert(
+                title: Text("템플릿 삭제"),
+                message: Text("`\(template.name)` 템플릿을 삭제할까요?"),
+                primaryButton: .destructive(Text("삭제")) {
+                    onDeleteTemplate(template)
+                },
+                secondaryButton: .cancel(Text("취소"))
+            )
+        }
     }
 }
 
@@ -259,11 +303,13 @@ private struct SelectionReviewView: View {
     let validationMessage: String?
     let canGenerate: Bool
     let onMoveItem: (SelectedMediaItem, SelectedMediaItem) -> Void
+    let onDeleteItem: (SelectedMediaItem) -> Void
     let onGenerate: () -> Void
     let onReselect: () -> Void
     let onReset: () -> Void
 
     @State private var draggedItem: SelectedMediaItem?
+    @State private var pendingDeleteItem: SelectedMediaItem?
     private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
     var body: some View {
@@ -298,7 +344,12 @@ private struct SelectionReviewView: View {
 
             LazyVGrid(columns: gridColumns, spacing: 16) {
                 ForEach(items) { item in
-                    ReorderThumbnailCardView(item: item)
+                    ReorderThumbnailCardView(
+                        item: item,
+                        onDelete: {
+                            pendingDeleteItem = item
+                        }
+                    )
                         .padding(.horizontal, 4)
                         .onDrag {
                             draggedItem = item
@@ -337,15 +388,37 @@ private struct SelectionReviewView: View {
                 .font(.custom("AvenirNext-Medium", size: 15))
                 .foregroundStyle(Color.white.opacity(0.74))
         }
+        .alert(item: $pendingDeleteItem) { item in
+            Alert(
+                title: Text("사진 제거"),
+                message: Text("\(item.selectionIndex + 1)번째 사진을 순서에서 제거할까요?"),
+                primaryButton: .destructive(Text("제거")) {
+                    onDeleteItem(item)
+                },
+                secondaryButton: .cancel(Text("취소"))
+            )
+        }
     }
 }
 
 private struct TemplateCreationSheet: View {
+    let initialDraft: TemplateDraft
     let onCancel: () -> Void
     let onSave: (TemplateDraft) -> Void
 
-    @State private var draft = TemplateDraft()
+    @State private var draft: TemplateDraft
     @State private var isAudioImporterPresented = false
+
+    init(
+        initialDraft: TemplateDraft = TemplateDraft(),
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (TemplateDraft) -> Void
+    ) {
+        self.initialDraft = initialDraft
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _draft = State(initialValue: initialDraft)
+    }
 
     private var parsedClipCount: Int {
         draft.parsedClipDurations.count
@@ -421,7 +494,7 @@ private struct TemplateCreationSheet: View {
                             }) {
                                 HStack {
                                     Image(systemName: "waveform.badge.plus")
-                                    Text(draft.audioImportURL == nil ? "오디오 파일 선택" : "오디오 다시 선택")
+                                    Text(draft.audioDisplayName.isEmpty ? "오디오 파일 선택" : "오디오 다시 선택")
                                     Spacer()
                                 }
                                 .font(.custom("AvenirNext-DemiBold", size: 15))
@@ -442,6 +515,7 @@ private struct TemplateCreationSheet: View {
                                     Button("제거") {
                                         draft.audioImportURL = nil
                                         draft.audioDisplayName = ""
+                                        draft.existingAudioTrack = nil
                                     }
                                     .font(.custom("AvenirNext-DemiBold", size: 13))
                                     .foregroundStyle(Color(red: 0.63, green: 0.34, blue: 0.27))
@@ -529,7 +603,7 @@ private struct TemplateCreationSheet: View {
                 )
                 .ignoresSafeArea()
             )
-            .navigationTitle("템플릿 추가")
+            .navigationTitle(draft.templateID == nil ? "템플릿 추가" : "템플릿 수정")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -555,6 +629,7 @@ private struct TemplateCreationSheet: View {
                     guard let url = urls.first else { return }
                     draft.audioImportURL = url
                     draft.audioDisplayName = url.lastPathComponent
+                    draft.existingAudioTrack = nil
                 case .failure:
                     break
                 }
@@ -654,7 +729,7 @@ private struct TemplateTextPositionPreview: View {
                         )
                         .overlay {
                             Text(draft.text.isEmpty ? "miniLog" : draft.text)
-                                .font(.custom(draft.fontName, size: CGFloat(min(draft.fontSize * 0.35, 28))))
+                                .font(AppFontCatalog.swiftUIFont(draft.fontName, size: CGFloat(min(draft.fontSize * 0.35, 28))))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 12)
                         }
@@ -926,77 +1001,95 @@ private struct TemplateCardView: View {
     let template: VideoTemplate
     let isSelected: Bool
     let onSelect: () -> Void
+    let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(alignment: .top, spacing: 16) {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [template.theme.accent.color, template.theme.secondaryAccent.color],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+        ZStack(alignment: .topTrailing) {
+            Button(action: onSelect) {
+                HStack(alignment: .top, spacing: 16) {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [template.theme.accent.color, template.theme.secondaryAccent.color],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                    .frame(width: 92, height: 112)
-                    .overlay(
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("\(template.photoCount)")
-                                .font(.custom("AvenirNextCondensed-Bold", size: 34))
-                                .foregroundStyle(Color.black.opacity(0.75))
-                            Text("PHOTOS")
-                                .font(.custom("AvenirNext-Bold", size: 12))
-                                .foregroundStyle(Color.black.opacity(0.58))
+                        .frame(width: 92, height: 112)
+                        .overlay(
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(template.countBadgeText)
+                                    .font(.custom("AvenirNextCondensed-Bold", size: 34))
+                                    .foregroundStyle(Color.black.opacity(0.75))
+                                Text("PHOTOS")
+                                    .font(.custom("AvenirNext-Bold", size: 12))
+                                    .foregroundStyle(Color.black.opacity(0.58))
+                            }
+                            .padding(14),
+                            alignment: .topLeading
+                        )
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(template.name)
+                                .font(.custom("AvenirNextCondensed-DemiBold", size: 26))
+                                .foregroundStyle(BrandPalette.ink)
+
+                            Spacer(minLength: 0)
+
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(template.theme.secondaryAccent.color)
+                            }
                         }
-                        .padding(14),
-                        alignment: .topLeading
-                    )
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(template.name)
-                            .font(.custom("AvenirNextCondensed-DemiBold", size: 26))
-                            .foregroundStyle(BrandPalette.ink)
+                        Text(template.tagline)
+                            .font(.custom("AvenirNext-DemiBold", size: 14))
+                            .foregroundStyle(BrandPalette.cocoa)
 
-                        Spacer(minLength: 0)
+                        Text(template.description)
+                            .font(.custom("AvenirNext-Medium", size: 14))
+                            .foregroundStyle(BrandPalette.inkSoft)
 
-                        if isSelected {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(template.theme.secondaryAccent.color)
+                        HStack(spacing: 8) {
+                            MetricPillView(label: template.selectionCaption)
+                            MetricPillView(label: template.durationBadgeText)
                         }
-                    }
-
-                    Text(template.tagline)
-                        .font(.custom("AvenirNext-DemiBold", size: 14))
-                        .foregroundStyle(BrandPalette.cocoa)
-
-                    Text(template.description)
-                        .font(.custom("AvenirNext-Medium", size: 14))
-                        .foregroundStyle(BrandPalette.inkSoft)
-
-                    HStack(spacing: 8) {
-                        MetricPillView(label: template.selectionCaption)
-                        MetricPillView(label: String(format: "%.1fs", template.totalDuration))
                     }
                 }
+                .padding(18)
+                .background(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(BrandPalette.ivory.opacity(isSelected ? 0.96 : 0.88))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .stroke(
+                                    isSelected ? BrandPalette.ink.opacity(0.25) : BrandPalette.line,
+                                    lineWidth: 1.2
+                                )
+                        )
+                )
+                .shadow(color: BrandPalette.shadow.opacity(isSelected ? 0.14 : 0.08), radius: 20, y: 10)
             }
-            .padding(18)
-            .background(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(BrandPalette.ivory.opacity(isSelected ? 0.96 : 0.88))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(
-                                isSelected ? BrandPalette.ink.opacity(0.25) : BrandPalette.line,
-                                lineWidth: 1.2
-                            )
-                    )
-            )
-            .shadow(color: BrandPalette.shadow.opacity(isSelected ? 0.14 : 0.08), radius: 20, y: 10)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home.templateCard.\(template.id)")
+
+            if let onEdit, let onDelete {
+                Menu {
+                    Button("수정", action: onEdit)
+                    Button("삭제", role: .destructive, action: onDelete)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(BrandPalette.ink)
+                        .padding(10)
+                        .background(BrandPalette.ivory.opacity(0.94), in: Circle())
+                }
+                .padding(12)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("home.templateCard.\(template.id)")
     }
 }
 
@@ -1043,6 +1136,7 @@ private struct TemplateActionPanelView: View {
 
 private struct ReorderThumbnailCardView: View {
     let item: SelectedMediaItem
+    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1061,12 +1155,23 @@ private struct ReorderThumbnailCardView: View {
                     )
                 )
                 .overlay(alignment: .topTrailing) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 12, weight: .bold))
-                        .padding(7)
-                        .background(.black.opacity(0.42), in: Capsule())
-                        .foregroundStyle(.white)
-                        .padding(8)
+                    HStack(spacing: 6) {
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11, weight: .bold))
+                                .padding(7)
+                                .background(Color.black.opacity(0.42), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 12, weight: .bold))
+                            .padding(7)
+                            .background(.black.opacity(0.42), in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(8)
                 }
 
             VStack(alignment: .leading, spacing: 6) {

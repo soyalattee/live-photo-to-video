@@ -10,6 +10,7 @@ import Foundation
 protocol TemplateLibraryService {
     func loadCustomTemplates() -> [VideoTemplate]
     func saveCustomTemplate(_ template: VideoTemplate) throws
+    func deleteCustomTemplate(id: String) throws
     func importAudioTrack(from sourceURL: URL) throws -> TemplateAudioTrack
 }
 
@@ -37,9 +38,29 @@ final class DefaultTemplateLibraryService: TemplateLibraryService {
         var templates = loadCustomTemplates()
 
         if let existingIndex = templates.firstIndex(where: { $0.id == template.id }) {
+            if let oldTrack = templates[existingIndex].audioTrack,
+               oldTrack.source == .imported,
+               oldTrack != template.audioTrack {
+                removeImportedAudioIfNeeded(oldTrack)
+            }
             templates[existingIndex] = template
         } else {
             templates.append(template)
+        }
+
+        let data = try JSONEncoder().encode(templates)
+        userDefaults.set(data, forKey: templatesKey)
+    }
+
+    func deleteCustomTemplate(id: String) throws {
+        var templates = loadCustomTemplates()
+        guard let index = templates.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let template = templates.remove(at: index)
+        if let audioTrack = template.audioTrack, audioTrack.source == .imported {
+            removeImportedAudioIfNeeded(audioTrack)
         }
 
         let data = try JSONEncoder().encode(templates)
@@ -78,5 +99,16 @@ final class DefaultTemplateLibraryService: TemplateLibraryService {
             resourceName: resourceName,
             fileExtension: extensionName
         )
+    }
+
+    private func removeImportedAudioIfNeeded(_ track: TemplateAudioTrack) {
+        guard track.source == .imported else {
+            return
+        }
+
+        let url = TemplateStoragePaths.audioDirectory
+            .appendingPathComponent(track.resourceName)
+            .appendingPathExtension(track.fileExtension)
+        try? FileManager.default.removeItem(at: url)
     }
 }

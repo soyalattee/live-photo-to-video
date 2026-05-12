@@ -94,7 +94,19 @@ enum SelectionRules {
     static let librarySelectionUpperBound = 30
 
     static func pickerLimit(for template: VideoTemplate?) -> Int {
-        min(template?.photoCount ?? librarySelectionUpperBound, librarySelectionUpperBound)
+        guard let template else {
+            return librarySelectionUpperBound
+        }
+
+        if template.usesSelectionCount {
+            if let maximumSelectionCount = template.maximumSelectionCount {
+                return min(maximumSelectionCount, librarySelectionUpperBound)
+            }
+
+            return 0
+        }
+
+        return min(template.photoCount, librarySelectionUpperBound)
     }
 }
 
