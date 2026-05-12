@@ -110,6 +110,7 @@ struct ContentView: View {
             if let selectedTemplate = viewModel.selectedTemplate {
                 SelectionReviewView(
                     template: selectedTemplate,
+                    cinematicTextCustomization: $viewModel.cinematicTextCustomization,
                     items: viewModel.selectedItems,
                     summary: viewModel.selectionSummary,
                     estimatedDurationText: viewModel.estimatedDurationText,
@@ -297,6 +298,7 @@ private struct HomeStateView: View {
 
 private struct SelectionReviewView: View {
     let template: VideoTemplate
+    @Binding var cinematicTextCustomization: TemplateCinematicTextCustomization?
     let items: [SelectedMediaItem]
     let summary: String
     let estimatedDurationText: String
@@ -311,6 +313,28 @@ private struct SelectionReviewView: View {
     @State private var draggedItem: SelectedMediaItem?
     @State private var pendingDeleteItem: SelectedMediaItem?
     private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
+
+    private var resolvedCinematicTextCustomizationBinding: Binding<TemplateCinematicTextCustomization>? {
+        guard template.supportsCinematicTextCustomization else {
+            return nil
+        }
+
+        return Binding(
+            get: {
+                cinematicTextCustomization ?? template.defaultCinematicTextCustomization ?? TemplateCinematicTextCustomization(
+                    primaryText: "",
+                    secondaryText: "",
+                    primaryFontName: TemplateFontPreset.defaultPreset.fontName,
+                    secondaryFontName: TemplateFontPreset.defaultPreset.fontName,
+                    textColor: ColorToken(red: 1, green: 1, blue: 1),
+                    shadowColor: ColorToken(red: 0, green: 0, blue: 0)
+                )
+            },
+            set: { updatedValue in
+                cinematicTextCustomization = updatedValue
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -340,6 +364,10 @@ private struct SelectionReviewView: View {
                             .accessibilityIdentifier("selection.validationText")
                     }
                 }
+            }
+
+            if let customizationBinding = resolvedCinematicTextCustomizationBinding {
+                CinematicIntroTextCustomizationCardView(customization: customizationBinding)
             }
 
             LazyVGrid(columns: gridColumns, spacing: 16) {
@@ -397,6 +425,82 @@ private struct SelectionReviewView: View {
                 },
                 secondaryButton: .cancel(Text("취소"))
             )
+        }
+    }
+}
+
+private struct CinematicIntroTextCustomizationCardView: View {
+    @Binding var customization: TemplateCinematicTextCustomization
+
+    private var textColorBinding: Binding<Color> {
+        Binding(
+            get: { customization.textColor.color },
+            set: { customization.textColor = ColorToken(color: $0) }
+        )
+    }
+
+    private var shadowColorBinding: Binding<Color> {
+        Binding(
+            get: { customization.shadowColor.color },
+            set: { customization.shadowColor = ColorToken(color: $0) }
+        )
+    }
+
+    var body: some View {
+        GlassPanelView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("인트로 텍스트")
+                    .font(.custom("AvenirNextCondensed-DemiBold", size: 24))
+                    .foregroundStyle(BrandPalette.ink)
+
+                Text("비워두면 템플릿 기본 문구를 그대로 사용해요.")
+                    .font(.custom("AvenirNext-Medium", size: 13))
+                    .foregroundStyle(BrandPalette.inkSoft)
+
+                TextField("메인 문구", text: $customization.primaryText, axis: .vertical)
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .lineLimit(2...4)
+                    .padding(16)
+                    .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                TextField("서브 문구", text: $customization.secondaryText, axis: .vertical)
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .lineLimit(1...3)
+                    .padding(16)
+                    .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                HStack(spacing: 12) {
+                    Picker("메인 폰트", selection: $customization.primaryFontName) {
+                        ForEach(TemplateFontPreset.presets) { preset in
+                            Text(preset.name).tag(preset.fontName)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .font(.custom("AvenirNext-DemiBold", size: 15))
+
+                    Picker("서브 폰트", selection: $customization.secondaryFontName) {
+                        ForEach(TemplateFontPreset.presets) { preset in
+                            Text(preset.name).tag(preset.fontName)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .font(.custom("AvenirNext-DemiBold", size: 15))
+                }
+
+                HStack(spacing: 12) {
+                    ColorPicker("글자 색", selection: textColorBinding, supportsOpacity: false)
+                        .font(.custom("AvenirNext-DemiBold", size: 15))
+                        .foregroundStyle(BrandPalette.ink)
+                        .padding(16)
+                        .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    ColorPicker("그림자 색", selection: shadowColorBinding, supportsOpacity: false)
+                        .font(.custom("AvenirNext-DemiBold", size: 15))
+                        .foregroundStyle(BrandPalette.ink)
+                        .padding(16)
+                        .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+            }
         }
     }
 }

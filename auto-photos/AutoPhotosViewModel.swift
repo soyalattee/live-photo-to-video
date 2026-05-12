@@ -13,9 +13,15 @@ import UIKit
 
 @MainActor
 final class AutoPhotosViewModel: ObservableObject {
+    private struct VideoRenderCacheKey: Hashable {
+        let options: VideoRenderOptions
+        let cinematicTextCustomization: TemplateCinematicTextCustomization?
+    }
+
     @Published var generationState: GenerationState = .idle
     @Published var templates: [VideoTemplate] = []
     @Published var selectedTemplate: VideoTemplate?
+    @Published var cinematicTextCustomization: TemplateCinematicTextCustomization?
     @Published var selectedItems: [SelectedMediaItem] = []
     @Published var exportOptions: VideoRenderOptions = .none
     @Published var alertInfo: AlertInfo?
@@ -33,7 +39,7 @@ final class AutoPhotosViewModel: ObservableObject {
 
     private var recoveryDestination: ErrorRecoveryDestination = .home
     private var generationTask: Task<Void, Never>?
-    private var renderedVideos: [VideoRenderOptions: GeneratedVideo] = [:]
+    private var renderedVideos: [VideoRenderCacheKey: GeneratedVideo] = [:]
 
     init(
         photoLibraryService: PhotoLibraryService,
@@ -112,7 +118,7 @@ final class AutoPhotosViewModel: ObservableObject {
             return nil
         }
 
-        return renderedVideos[selectedTemplate.previewRenderOptions]
+        return renderedVideos[cacheKey(for: selectedTemplate.previewRenderOptions)]
     }
 
     var currentErrorMessage: String? {
@@ -151,6 +157,7 @@ final class AutoPhotosViewModel: ObservableObject {
         let shouldResetSelection = selectedTemplate?.id != template.id
 
         selectedTemplate = template
+        cinematicTextCustomization = template.defaultCinematicTextCustomization
         exportOptions = template.previewRenderOptions
         toastMessage = nil
         alertInfo = nil
@@ -377,7 +384,8 @@ final class AutoPhotosViewModel: ObservableObject {
                     from: VideoGenerationRequest(
                         items: selectedItems,
                         template: selectedTemplate,
-                        renderOptions: selectedTemplate.previewRenderOptions
+                        renderOptions: selectedTemplate.previewRenderOptions,
+                        cinematicTextCustomization: cinematicTextCustomization
                     ),
                     progress: { [weak self] step in
                         Task { @MainActor in
@@ -427,6 +435,10 @@ final class AutoPhotosViewModel: ObservableObject {
         exportOptions.includesText = enabled
     }
 
+    func updateCinematicTextCustomization(_ customization: TemplateCinematicTextCustomization) {
+        cinematicTextCustomization = customization
+    }
+
     func saveGeneratedVideo() async {
         guard case .preview = generationState else {
             return
@@ -474,6 +486,7 @@ final class AutoPhotosViewModel: ObservableObject {
         generationTask = nil
         videoGenerationService.cancelGeneration()
         selectedTemplate = nil
+        cinematicTextCustomization = nil
         selectedItems = []
         exportOptions = .none
         generationState = .idle
@@ -488,6 +501,7 @@ final class AutoPhotosViewModel: ObservableObject {
         switch recoveryDestination {
         case .home:
             selectedTemplate = nil
+            cinematicTextCustomization = nil
             generationState = .idle
         case .selectionReview:
             generationState = selectedItems.isEmpty ? .idle : .selectionReview
@@ -495,7 +509,7 @@ final class AutoPhotosViewModel: ObservableObject {
     }
 
     private func video(for options: VideoRenderOptions) async throws -> GeneratedVideo {
-        if let cachedVideo = renderedVideos[options] {
+        if let cachedVideo = renderedVideos[cacheKey(for: options)] {
             return cachedVideo
         }
 
@@ -511,7 +525,8 @@ final class AutoPhotosViewModel: ObservableObject {
             from: VideoGenerationRequest(
                 items: selectedItems,
                 template: selectedTemplate,
-                renderOptions: options
+                renderOptions: options,
+                cinematicTextCustomization: cinematicTextCustomization
             ),
             progress: { _ in }
         )
@@ -520,7 +535,14 @@ final class AutoPhotosViewModel: ObservableObject {
     }
 
     private func storeRenderedVideo(_ video: GeneratedVideo) {
-        renderedVideos[video.renderOptions] = video
+        renderedVideos[cacheKey(for: video.renderOptions)] = video
+    }
+
+    private func cacheKey(for options: VideoRenderOptions) -> VideoRenderCacheKey {
+        VideoRenderCacheKey(
+            options: options,
+            cinematicTextCustomization: cinematicTextCustomization
+        )
     }
 
     private func cleanupRenderedVideos() {

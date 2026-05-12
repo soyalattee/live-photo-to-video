@@ -114,6 +114,7 @@ struct VideoGenerationRequest: Sendable {
     let items: [SelectedMediaItem]
     let template: VideoTemplate
     let renderOptions: VideoRenderOptions
+    let cinematicTextCustomization: TemplateCinematicTextCustomization?
 }
 
 struct AlertInfo: Identifiable, Equatable, Sendable {

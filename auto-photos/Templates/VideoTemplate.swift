@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import UIKit
 
 enum TemplateAudioSource: String, Codable, Hashable, Sendable {
     case bundle
@@ -156,6 +157,15 @@ struct TemplateFrameOverlay: Codable, Equatable, Hashable, Sendable {
     let endTime: TimeInterval?
 }
 
+struct TemplateCinematicTextCustomization: Equatable, Hashable, Sendable {
+    var primaryText: String
+    var secondaryText: String
+    var primaryFontName: String
+    var secondaryFontName: String
+    var textColor: ColorToken
+    var shadowColor: ColorToken
+}
+
 struct ColorToken: Codable, Equatable, Hashable, Sendable {
     let red: Double
     let green: Double
@@ -163,6 +173,22 @@ struct ColorToken: Codable, Equatable, Hashable, Sendable {
 
     var color: Color {
         Color(red: red, green: green, blue: blue)
+    }
+
+    init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    init(color: Color) {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        self.init(red: Double(red), green: Double(green), blue: Double(blue))
     }
 }
 
@@ -317,12 +343,97 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         )
     }
 
+    var supportsCinematicTextCustomization: Bool {
+        defaultCinematicTextCustomization != nil
+    }
+
+    var defaultCinematicTextCustomization: TemplateCinematicTextCustomization? {
+        guard
+            let cinematicIntro,
+            let primaryOverlay = cinematicIntro.textOverlays.first,
+            let secondaryOverlay = cinematicIntro.textOverlays.dropFirst().first
+        else {
+            return nil
+        }
+
+        return TemplateCinematicTextCustomization(
+            primaryText: primaryOverlay.text,
+            secondaryText: secondaryOverlay.text,
+            primaryFontName: primaryOverlay.fontName,
+            secondaryFontName: secondaryOverlay.fontName,
+            textColor: primaryOverlay.color,
+            shadowColor: primaryOverlay.shadow?.color ?? ColorToken(red: 0, green: 0, blue: 0)
+        )
+    }
+
     func clipMediaMode(for clipIndex: Int) -> TemplateClipMediaMode {
         guard let clipMediaModes, clipMediaModes.indices.contains(clipIndex) else {
             return .automatic
         }
 
         return clipMediaModes[clipIndex]
+    }
+
+    func resolvedCinematicIntro(
+        customization: TemplateCinematicTextCustomization?
+    ) -> TemplateCinematicIntroEffect? {
+        guard let cinematicIntro else {
+            return nil
+        }
+
+        guard let customization else {
+            return cinematicIntro
+        }
+
+        var updatedOverlays = cinematicIntro.textOverlays
+
+        if let primaryOverlay = updatedOverlays.first {
+            updatedOverlays[0] = TemplateAnimatedTextOverlay(
+                text: customization.primaryText.normalizedTemplateText(fallback: primaryOverlay.text),
+                startTime: primaryOverlay.startTime,
+                endTime: primaryOverlay.endTime,
+                fontName: customization.primaryFontName,
+                fontSize: primaryOverlay.fontSize,
+                position: primaryOverlay.position,
+                maxWidthRatio: primaryOverlay.maxWidthRatio,
+                color: customization.textColor,
+                shadow: primaryOverlay.shadow.map {
+                    TemplateTextShadow(
+                        offsetX: $0.offsetX,
+                        offsetY: $0.offsetY,
+                        blurRadius: $0.blurRadius,
+                        color: customization.shadowColor
+                    )
+                },
+                glow: primaryOverlay.glow,
+                revealMode: primaryOverlay.revealMode,
+                lineHeightMultiple: primaryOverlay.lineHeightMultiple
+            )
+        }
+
+        if updatedOverlays.indices.contains(1) {
+            let secondaryOverlay = updatedOverlays[1]
+            updatedOverlays[1] = TemplateAnimatedTextOverlay(
+                text: customization.secondaryText.normalizedTemplateText(fallback: secondaryOverlay.text),
+                startTime: secondaryOverlay.startTime,
+                endTime: secondaryOverlay.endTime,
+                fontName: customization.secondaryFontName,
+                fontSize: secondaryOverlay.fontSize,
+                position: secondaryOverlay.position,
+                maxWidthRatio: secondaryOverlay.maxWidthRatio,
+                color: customization.textColor,
+                shadow: secondaryOverlay.shadow,
+                glow: secondaryOverlay.glow,
+                revealMode: secondaryOverlay.revealMode,
+                lineHeightMultiple: secondaryOverlay.lineHeightMultiple
+            )
+        }
+
+        return TemplateCinematicIntroEffect(
+            duration: cinematicIntro.duration,
+            barHeightRatio: cinematicIntro.barHeightRatio,
+            textOverlays: updatedOverlays
+        )
     }
 
     var selectionCaption: String {
@@ -493,5 +604,12 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         durations.append(contentsOf: Array(repeating: 1.2, count: lateExtras))
 
         return durations
+    }
+}
+
+private extension String {
+    func normalizedTemplateText(fallback: String) -> String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : self
     }
 }

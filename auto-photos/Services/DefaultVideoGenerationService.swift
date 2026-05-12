@@ -257,7 +257,18 @@ final class DefaultVideoGenerationService: VideoGenerationService {
 
         let sourceDuration = try await asset.load(.duration)
         let requestedDuration = CMTime(seconds: duration, preferredTimescale: framesPerSecond)
-        let clipDuration = min(sourceDuration, requestedDuration)
+
+        guard
+            sourceDuration.isNumeric,
+            requestedDuration.isNumeric,
+            sourceDuration.seconds > 0,
+            requestedDuration.seconds > 0
+        else {
+            throw AutoPhotosError.livePhotoVideoNotFound
+        }
+
+        let sourceClipDuration = CMTimeCompare(sourceDuration, requestedDuration) < 0 ? sourceDuration : requestedDuration
+        var outputDuration = sourceClipDuration
 
         let composition = AVMutableComposition()
         guard let compositionTrack = composition.addMutableTrack(
@@ -268,17 +279,25 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
 
         try compositionTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: clipDuration),
+            CMTimeRange(start: .zero, duration: sourceClipDuration),
             of: sourceTrack,
             at: .zero
         )
+
+        if CMTimeCompare(sourceClipDuration, requestedDuration) < 0 {
+            compositionTrack.scaleTimeRange(
+                CMTimeRange(start: .zero, duration: sourceClipDuration),
+                toDuration: requestedDuration
+            )
+            outputDuration = requestedDuration
+        }
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = renderSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: framesPerSecond)
 
         let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: clipDuration)
+        instruction.timeRange = CMTimeRange(start: .zero, duration: outputDuration)
 
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionTrack)
         let transform = try await makeAspectFillTransform(
@@ -293,7 +312,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         let outputURL = makeTemporaryURL(prefix: "auto-photos-live", pathExtension: "mp4")
         try await export(asset: composition, videoComposition: videoComposition, to: outputURL)
 
-        return PreparedClip(url: outputURL, duration: clipDuration)
+        return PreparedClip(url: outputURL, duration: outputDuration)
     }
 
     private func composeVideo(from clips: [PreparedClip]) async throws -> AVMutableComposition {
@@ -386,7 +405,9 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         } else {
             shouldRenderBasicText = false
         }
-        let introEffect = request.template.cinematicIntro
+        let introEffect = request.template.resolvedCinematicIntro(
+            customization: request.cinematicTextCustomization
+        )
         let frameOverlay = request.template.frameOverlay
 
         guard
