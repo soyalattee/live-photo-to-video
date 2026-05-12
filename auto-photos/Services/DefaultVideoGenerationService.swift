@@ -31,6 +31,14 @@ private struct AssetPhotoRepresentation {
     }
 }
 
+private final class SendableExportSessionReference: @unchecked Sendable {
+    let session: AVAssetExportSession
+
+    init(session: AVAssetExportSession) {
+        self.session = session
+    }
+}
+
 final class DefaultVideoGenerationService: VideoGenerationService {
     private let imageManager = PHImageManager.default()
     private let renderSize = CGSize(width: 1080, height: 1920)
@@ -43,11 +51,14 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         from request: VideoGenerationRequest,
         progress: @escaping @Sendable (GenerationStep) -> Void
     ) async throws -> GeneratedVideo {
-        guard request.items.count == request.template.photoCount else {
+        let resolvedPhotoCount = request.template.resolvedPhotoCount(for: request.items.count)
+        let clipDurations = request.template.resolvedClipDurations(for: request.items.count)
+
+        guard request.items.count == resolvedPhotoCount else {
             throw AutoPhotosError.invalidSelection
         }
 
-        guard request.template.photoCount == request.template.clipDurations.count else {
+        guard resolvedPhotoCount == clipDurations.count else {
             throw AutoPhotosError.templateConfigurationInvalid
         }
 
@@ -57,7 +68,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             progress(.preparing)
             let preparedClips = try await prepareClips(
                 from: request.items,
-                clipDurations: request.template.clipDurations
+                clipDurations: clipDurations,
+                template: request.template
             )
             temporaryURLs.append(contentsOf: preparedClips.map(\.url))
 
@@ -65,14 +77,19 @@ final class DefaultVideoGenerationService: VideoGenerationService {
 
             progress(.composing)
             let composition = try await composeVideo(from: preparedClips)
-            try await attachAudioIfNeeded(to: composition, request: request)
+            let audioMix = try await attachAudioIfNeeded(to: composition, request: request)
             let videoComposition = makeVideoCompositionIfNeeded(for: composition, request: request)
 
             try Task.checkCancellation()
 
             progress(.exporting)
             let finalURL = makeTemporaryURL(prefix: "auto-photos-final", pathExtension: "mp4")
-            try await export(asset: composition, videoComposition: videoComposition, to: finalURL)
+            try await export(
+                asset: composition,
+                videoComposition: videoComposition,
+                audioMix: audioMix,
+                to: finalURL
+            )
 
             cleanup(urls: temporaryURLs)
 
@@ -95,26 +112,45 @@ final class DefaultVideoGenerationService: VideoGenerationService {
 
     private func prepareClips(
         from items: [SelectedMediaItem],
-        clipDurations: [TimeInterval]
+        clipDurations: [TimeInterval],
+        template: VideoTemplate
     ) async throws -> [PreparedClip] {
         var clips: [PreparedClip] = []
         let sortedItems = items.sorted(by: { $0.selectionIndex < $1.selectionIndex })
 
-        for (item, duration) in zip(sortedItems, clipDurations) {
+        for (clipIndex, pair) in zip(sortedItems, clipDurations).enumerated() {
             try Task.checkCancellation()
-            clips.append(try await makeClip(for: item, duration: duration))
+            let (item, duration) = pair
+            clips.append(
+                try await makeClip(
+                    for: item,
+                    duration: duration,
+                    clipIndex: clipIndex,
+                    template: template
+                )
+            )
         }
 
         return clips
     }
 
-    private func makeClip(for item: SelectedMediaItem, duration: TimeInterval) async throws -> PreparedClip {
+    private func makeClip(
+        for item: SelectedMediaItem,
+        duration: TimeInterval,
+        clipIndex: Int,
+        template: VideoTemplate
+    ) async throws -> PreparedClip {
         switch item.kind {
         case .photo:
             let photoRepresentation = try await requestPhotoRepresentation(for: item.assetLocalIdentifier)
             return try await makeStillClip(from: photoRepresentation, duration: duration)
         case .livePhoto:
             let photoRepresentation = try await requestPhotoRepresentation(for: item.assetLocalIdentifier)
+            let clipMediaMode = template.clipMediaMode(for: clipIndex)
+
+            guard clipMediaMode != .stillImage else {
+                return try await makeStillClip(from: photoRepresentation, duration: duration)
+            }
 
             if let pairedVideoURL = try await exportPairedVideoURL(for: item.assetLocalIdentifier) {
                 defer { try? FileManager.default.removeItem(at: pairedVideoURL) }
@@ -138,7 +174,9 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         from photoRepresentation: AssetPhotoRepresentation,
         duration: TimeInterval
     ) async throws -> PreparedClip {
-        let renderedImage = photoRepresentation.normalizedImage.aspectFilled(to: renderSize)
+        let renderedImage = photoRepresentation.normalizedImage
+            .aspectFilled(to: renderSize)
+            .flippedVertically()
         let outputURL = makeTemporaryURL(prefix: "auto-photos-photo", pathExtension: "mp4")
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
@@ -293,25 +331,25 @@ final class DefaultVideoGenerationService: VideoGenerationService {
     private func attachAudioIfNeeded(
         to composition: AVMutableComposition,
         request: VideoGenerationRequest
-    ) async throws {
+    ) async throws -> AVAudioMix? {
         guard request.renderOptions.includesMusic else {
-            return
+            return nil
         }
 
         guard let audioURL = request.template.audioTrack?.assetURL else {
-            return
+            return nil
         }
 
         let audioAsset = AVURLAsset(url: audioURL)
         let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
 
         guard let sourceTrack = audioTracks.first else {
-            return
+            return nil
         }
 
         let sourceDuration = try await audioAsset.load(.duration)
         guard sourceDuration.isNumeric && sourceDuration.seconds > 0 else {
-            return
+            return nil
         }
 
         guard let compositionTrack = composition.addMutableTrack(
@@ -334,19 +372,25 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             )
             cursor = CMTimeAdd(cursor, segmentDuration)
         }
+
+        return makeFadeOutAudioMix(for: compositionTrack, targetDuration: targetDuration)
     }
 
     private func makeVideoCompositionIfNeeded(
         for composition: AVMutableComposition,
         request: VideoGenerationRequest
     ) -> AVMutableVideoComposition? {
-        guard request.renderOptions.includesText else {
-            return nil
+        let shouldRenderBasicText: Bool
+        if request.renderOptions.includesText, let overlay = request.template.textOverlay {
+            shouldRenderBasicText = overlay.endTime > overlay.startTime
+        } else {
+            shouldRenderBasicText = false
         }
+        let introEffect = request.template.cinematicIntro
+        let frameOverlay = request.template.frameOverlay
 
         guard
-            let overlay = request.template.textOverlay,
-            overlay.endTime > overlay.startTime,
+            shouldRenderBasicText || introEffect != nil || frameOverlay != nil,
             let videoTrack = composition.tracks(withMediaType: .video).first
         else {
             return nil
@@ -370,6 +414,84 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         videoLayer.frame = CGRect(origin: .zero, size: renderSize)
         parentLayer.addSublayer(videoLayer)
 
+        let totalDuration = max(composition.duration.seconds, 0.01)
+
+        if let introEffect {
+            addCinematicIntroLayers(
+                to: parentLayer,
+                effect: introEffect,
+                totalDuration: totalDuration,
+                includesText: request.renderOptions.includesText
+            )
+        }
+
+        if let frameOverlay {
+            addFrameOverlay(
+                to: parentLayer,
+                overlay: frameOverlay,
+                totalDuration: totalDuration
+            )
+        }
+
+        if shouldRenderBasicText, let overlay = request.template.textOverlay {
+            addBasicTextOverlay(
+                to: parentLayer,
+                overlay: overlay,
+                totalDuration: totalDuration
+            )
+        }
+
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+            postProcessingAsVideoLayer: videoLayer,
+            in: parentLayer
+        )
+
+        return videoComposition
+    }
+
+    private func addFrameOverlay(
+        to parentLayer: CALayer,
+        overlay: TemplateFrameOverlay,
+        totalDuration: TimeInterval
+    ) {
+        guard
+            let assetURL = overlay.imageAsset.assetURL,
+            let image = UIImage(contentsOfFile: assetURL.path),
+            let cgImage = image.cgImage
+        else {
+            return
+        }
+
+        let frameLayer = CALayer()
+        frameLayer.frame = CGRect(origin: .zero, size: renderSize)
+        frameLayer.contents = cgImage
+        frameLayer.contentsGravity = .resize
+        frameLayer.contentsScale = UIScreen.main.scale
+        frameLayer.opacity = 0
+        parentLayer.addSublayer(frameLayer)
+
+        let startProgress = max(0, min(overlay.startTime / totalDuration, 1))
+        let resolvedEndTime = overlay.endTime.map { min(max($0, overlay.startTime), totalDuration) } ?? totalDuration
+        let endProgress = max(startProgress, min(resolvedEndTime / totalDuration, 1))
+        let enterProgress = min(startProgress + 0.01, endProgress)
+        let exitProgress = endProgress
+
+        let opacityAnimation = makeOverlayOpacityAnimation(
+            totalDuration: totalDuration,
+            startProgress: startProgress,
+            enterProgress: enterProgress,
+            exitProgress: exitProgress,
+            endProgress: endProgress
+        )
+        opacityAnimation.values = [0, 0, 1, 1, 1, 1]
+        frameLayer.add(opacityAnimation, forKey: "frameOverlayOpacity")
+    }
+
+    private func addBasicTextOverlay(
+        to parentLayer: CALayer,
+        overlay: TemplateTextOverlay,
+        totalDuration: TimeInterval
+    ) {
         let textSize = CGSize(width: renderSize.width * 0.82, height: 132)
         let textOrigin = CGPoint(
             x: (renderSize.width * overlay.position.normalizedX) - (textSize.width / 2),
@@ -383,8 +505,11 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             height: textSize.height
         )
 
-        let resolvedFont = UIFont(name: overlay.fontName, size: overlay.fontSize)
-            ?? UIFont.boldSystemFont(ofSize: overlay.fontSize)
+        let resolvedFont = AppFontCatalog.uiKitFont(
+            overlay.fontName,
+            size: CGFloat(overlay.fontSize),
+            fallbackWeight: .bold
+        )
         let textLayer = CALayer()
         textLayer.frame = textFrame
         textLayer.contentsGravity = .resizeAspect
@@ -397,7 +522,6 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         )?.cgImage
         parentLayer.addSublayer(textLayer)
 
-        let totalDuration = max(composition.duration.seconds, 0.01)
         let startProgress = max(0, min(overlay.startTime / totalDuration, 1))
         let endProgress = max(startProgress, min(overlay.endTime / totalDuration, 1))
         let enterProgress = min(startProgress + 0.03, endProgress)
@@ -411,16 +535,270 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             endProgress: endProgress
         )
         textLayer.add(opacityAnimation, forKey: "templateTextOpacity")
-
-        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer,
-            in: parentLayer
-        )
-
-        return videoComposition
     }
 
-    private func export(asset: AVAsset, videoComposition: AVVideoComposition?, to outputURL: URL) async throws {
+    private func addCinematicIntroLayers(
+        to parentLayer: CALayer,
+        effect: TemplateCinematicIntroEffect,
+        totalDuration: TimeInterval,
+        includesText: Bool
+    ) {
+        let introDuration = min(max(effect.duration, 0), totalDuration)
+        guard introDuration > 0 else {
+            return
+        }
+
+        let barHeight = renderSize.height * effect.normalizedBarHeightRatio
+        addLetterboxLayer(
+            to: parentLayer,
+            frame: CGRect(x: 0, y: 0, width: renderSize.width, height: barHeight),
+            anchorPoint: CGPoint(x: 0.5, y: 0),
+            position: CGPoint(x: renderSize.width / 2, y: 0),
+            introDuration: introDuration
+        )
+        addLetterboxLayer(
+            to: parentLayer,
+            frame: CGRect(x: 0, y: renderSize.height - barHeight, width: renderSize.width, height: barHeight),
+            anchorPoint: CGPoint(x: 0.5, y: 1),
+            position: CGPoint(x: renderSize.width / 2, y: renderSize.height),
+            introDuration: introDuration
+        )
+
+        guard includesText else {
+            return
+        }
+
+        for overlay in effect.textOverlays where overlay.endTime > overlay.startTime {
+            let textLayer = makeAnimatedTextLayer(for: overlay)
+            parentLayer.addSublayer(textLayer)
+
+            switch overlay.revealMode {
+            case .fade:
+                let startProgress = max(0, min(overlay.startTime / totalDuration, 1))
+                let endProgress = max(startProgress, min(overlay.endTime / totalDuration, 1))
+                let enterProgress = min((overlay.startTime + 0.12) / totalDuration, endProgress)
+                let exitProgress = max(enterProgress, min((overlay.endTime - 0.12) / totalDuration, 1))
+                let opacityAnimation = makeOverlayOpacityAnimation(
+                    totalDuration: totalDuration,
+                    startProgress: startProgress,
+                    enterProgress: enterProgress,
+                    exitProgress: exitProgress,
+                    endProgress: endProgress
+                )
+                textLayer.add(opacityAnimation, forKey: "animatedTextFade")
+            case .typewriter:
+                applyTypewriterAnimation(
+                    to: textLayer,
+                    overlay: overlay,
+                    totalDuration: totalDuration
+                )
+            }
+        }
+    }
+
+    private func addLetterboxLayer(
+        to parentLayer: CALayer,
+        frame: CGRect,
+        anchorPoint: CGPoint,
+        position: CGPoint,
+        introDuration: TimeInterval
+    ) {
+        let barLayer = CALayer()
+        barLayer.frame = frame
+        barLayer.backgroundColor = UIColor.black.cgColor
+        barLayer.anchorPoint = anchorPoint
+        barLayer.position = position
+        parentLayer.addSublayer(barLayer)
+
+        let animation = CABasicAnimation(keyPath: "transform.scale.y")
+        animation.fromValue = 1
+        animation.toValue = 0
+        animation.beginTime = AVCoreAnimationBeginTimeAtZero
+        animation.duration = introDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        barLayer.add(animation, forKey: "letterboxReveal")
+    }
+
+    private func makeAnimatedTextLayer(for overlay: TemplateAnimatedTextOverlay) -> CALayer {
+        let horizontalMargin = renderSize.width * max((1 - overlay.normalizedMaxWidthRatio) / 2, 0.05)
+        let maxWidth = renderSize.width - (horizontalMargin * 2)
+        let maxHeight = renderSize.height * 0.34
+        let resolvedFont = AppFontCatalog.uiKitFont(
+            overlay.fontName,
+            size: CGFloat(overlay.fontSize),
+            fallbackWeight: .bold
+        )
+        let attributedText = makeAttributedText(
+            text: overlay.text,
+            font: resolvedFont,
+            color: overlay.color.uiColor,
+            shadow: overlay.shadow.map(makeShadow),
+            glow: overlay.glow.map(makeGlow),
+            lineBreakMode: .byWordWrapping,
+            lineHeightMultiple: overlay.normalizedLineHeightMultiple
+        )
+        let textInsets = makeTextInsets(
+            for: overlay.shadow.map(makeShadow),
+            glow: overlay.glow.map(makeGlow)
+        )
+        let measuredHeight = min(
+            ceil(
+                attributedText.boundingRect(
+                    with: CGSize(
+                        width: max(maxWidth - textInsets.left - textInsets.right, 1),
+                        height: .greatestFiniteMagnitude
+                    ),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                ).height
+            ) + textInsets.top + textInsets.bottom,
+            maxHeight
+        )
+        let textFrame = CGRect(
+            x: horizontalMargin,
+            y: min(
+                max((renderSize.height * overlay.position.normalizedY) - (measuredHeight / 2), 48),
+                renderSize.height - measuredHeight - 48
+            ),
+            width: maxWidth,
+            height: measuredHeight
+        )
+
+        let textLayer = CALayer()
+        textLayer.frame = textFrame
+        textLayer.contentsGravity = .resizeAspect
+        textLayer.contentsScale = UIScreen.main.scale
+        textLayer.opacity = 0
+
+        if overlay.revealMode == .fade {
+            textLayer.contents = makeAdvancedTextImage(
+                text: overlay.text,
+                font: resolvedFont,
+                color: overlay.color.uiColor,
+                size: textFrame.size,
+                shadow: overlay.shadow.map(makeShadow),
+                glow: overlay.glow.map(makeGlow),
+                lineHeightMultiple: overlay.normalizedLineHeightMultiple,
+                referenceText: overlay.text
+            )?.cgImage
+        }
+
+        return textLayer
+    }
+
+    private func applyTypewriterAnimation(
+        to textLayer: CALayer,
+        overlay: TemplateAnimatedTextOverlay,
+        totalDuration: TimeInterval
+    ) {
+        let resolvedFont = AppFontCatalog.uiKitFont(
+            overlay.fontName,
+            size: CGFloat(overlay.fontSize),
+            fallbackWeight: .bold
+        )
+        let revealDuration = min(
+            max((overlay.endTime - overlay.startTime) * 0.72, 0.8),
+            overlay.endTime - overlay.startTime
+        )
+        let characters = Array(overlay.text)
+        let frames = characters.indices.compactMap { index -> CGImage? in
+            makeAdvancedTextImage(
+                text: String(characters[0...index]),
+                font: resolvedFont,
+                color: overlay.color.uiColor,
+                size: textLayer.bounds.size,
+                shadow: overlay.shadow.map(makeShadow),
+                glow: overlay.glow.map(makeGlow),
+                lineHeightMultiple: overlay.normalizedLineHeightMultiple,
+                referenceText: overlay.text
+            )?.cgImage
+        }
+
+        guard !frames.isEmpty else {
+            return
+        }
+
+        textLayer.opacity = 1
+        textLayer.contents = frames.last
+
+        let contentsAnimation = CAKeyframeAnimation(keyPath: "contents")
+        contentsAnimation.values = frames
+        contentsAnimation.calculationMode = .discrete
+        contentsAnimation.beginTime = AVCoreAnimationBeginTimeAtZero + overlay.startTime
+        contentsAnimation.duration = revealDuration
+        contentsAnimation.fillMode = .forwards
+        contentsAnimation.isRemovedOnCompletion = false
+        textLayer.add(contentsAnimation, forKey: "typewriterContents")
+
+        let fadeOutStart = max(overlay.endTime - 0.12, overlay.startTime)
+        let opacityAnimation = makeOverlayOpacityAnimation(
+            totalDuration: totalDuration,
+            startProgress: max(0, min(overlay.startTime / totalDuration, 1)),
+            enterProgress: max(0, min(overlay.startTime / totalDuration, 1)),
+            exitProgress: max(0, min(fadeOutStart / totalDuration, 1)),
+            endProgress: max(0, min(overlay.endTime / totalDuration, 1))
+        )
+        opacityAnimation.values = [1, 1, 1, 1, 0, 0]
+        textLayer.add(opacityAnimation, forKey: "typewriterOpacity")
+    }
+
+    private func makeShadow(from shadow: TemplateTextShadow) -> NSShadow {
+        let renderedShadow = NSShadow()
+        renderedShadow.shadowColor = shadow.color.uiColor
+        renderedShadow.shadowOffset = CGSize(width: shadow.offsetX, height: shadow.offsetY)
+        renderedShadow.shadowBlurRadius = shadow.blurRadius
+        return renderedShadow
+    }
+
+    private func makeGlow(from glow: TemplateTextGlow) -> NSShadow {
+        let renderedGlow = NSShadow()
+        renderedGlow.shadowColor = glow.color.uiColor.withAlphaComponent(CGFloat(glow.opacity))
+        renderedGlow.shadowOffset = .zero
+        renderedGlow.shadowBlurRadius = glow.blurRadius
+        return renderedGlow
+    }
+
+    private func makeAttributedText(
+        text: String,
+        font: UIFont,
+        color: UIColor,
+        shadow: NSShadow?,
+        glow: NSShadow?,
+        lineBreakMode: NSLineBreakMode,
+        lineHeightMultiple: Double
+    ) -> NSAttributedString {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.lineBreakMode = lineBreakMode
+        paragraphStyle.lineHeightMultiple = CGFloat(lineHeightMultiple)
+
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraphStyle,
+        ]
+
+        if let shadow {
+            attributes[.shadow] = shadow
+        }
+
+        if let glow {
+            attributes[.strokeColor] = UIColor.clear
+            attributes[.strokeWidth] = 0
+            attributes[.shadow] = shadow ?? glow
+        }
+
+        return NSAttributedString(string: text, attributes: attributes)
+    }
+
+    private func export(
+        asset: AVAsset,
+        videoComposition: AVVideoComposition?,
+        audioMix: AVAudioMix? = nil,
+        to outputURL: URL
+    ) async throws {
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
             throw AutoPhotosError.exportFailed
         }
@@ -429,19 +807,24 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         exportSession.videoComposition = videoComposition
+        exportSession.audioMix = audioMix
 
         setActiveExportSession(exportSession)
         defer { clearActiveExportSession(exportSession) }
 
-        try await withCheckedThrowingContinuation { continuation in
-            exportSession.exportAsynchronously {
-                switch exportSession.status {
+        let exportSessionReference = SendableExportSessionReference(session: exportSession)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            exportSessionReference.session.exportAsynchronously {
+                let status = exportSessionReference.session.status
+                let error = exportSessionReference.session.error
+
+                switch status {
                 case .completed:
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 case .cancelled:
                     continuation.resume(throwing: CancellationError())
                 case .failed:
-                    continuation.resume(throwing: exportSession.error ?? AutoPhotosError.exportFailed)
+                    continuation.resume(throwing: error ?? AutoPhotosError.exportFailed)
                 default:
                     continuation.resume(throwing: AutoPhotosError.exportFailed)
                 }
@@ -454,6 +837,55 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             throw AutoPhotosError.assetNotFound
         }
 
+        async let renderedImage = requestRenderedImage(for: asset)
+        async let orientation = requestImageOrientation(for: asset)
+
+        return try await AssetPhotoRepresentation(
+            image: renderedImage,
+            orientation: orientation
+        )
+    }
+
+    private func requestRenderedImage(for asset: PHAsset) async throws -> UIImage {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .none
+        options.version = .current
+        options.isNetworkAccessAllowed = true
+
+        return try await withCheckedThrowingContinuation { continuation in
+            imageManager.requestImage(
+                for: asset,
+                targetSize: PHImageManagerMaximumSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+
+                if let error = info?[PHImageErrorKey] as? Error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                guard !isDegraded else {
+                    return
+                }
+
+                guard let image else {
+                    continuation.resume(throwing: AutoPhotosError.imageLoadingFailed)
+                    return
+                }
+
+                continuation.resume(returning: image)
+            }
+        }
+    }
+
+    private func requestImageOrientation(for asset: PHAsset) async throws -> UIImage.Orientation {
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.version = .current
@@ -471,30 +903,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                     return
                 }
 
-                guard let data, let image = UIImage(data: data) else {
-                    continuation.resume(throwing: AutoPhotosError.imageLoadingFailed)
-                    return
-                }
-
-                let orientation = UIImage.Orientation(cgOrientation)
-                let resolvedImage: UIImage
-
-                if let cgImage = image.cgImage {
-                    resolvedImage = UIImage(
-                        cgImage: cgImage,
-                        scale: image.scale,
-                        orientation: orientation
-                    )
-                } else {
-                    resolvedImage = image
-                }
-
-                continuation.resume(
-                    returning: AssetPhotoRepresentation(
-                        image: resolvedImage,
-                        orientation: orientation
-                    )
-                )
+                _ = data
+                continuation.resume(returning: UIImage.Orientation(cgOrientation))
             }
         }
     }
@@ -579,6 +989,37 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
     }
 
+    private func makeFadeOutAudioMix(
+        for compositionTrack: AVCompositionTrack,
+        targetDuration: CMTime
+    ) -> AVAudioMix? {
+        guard targetDuration.isNumeric else {
+            return nil
+        }
+
+        let targetSeconds = targetDuration.seconds
+        guard targetSeconds > 0.2 else {
+            return nil
+        }
+
+        let maxAllowedFade = max(targetSeconds - 0.05, 0.1)
+        let fadeDurationSeconds = min(min(max(targetSeconds * 0.16, 0.45), 1.8), maxAllowedFade)
+        let fadeDuration = CMTime(seconds: fadeDurationSeconds, preferredTimescale: 600)
+        let fadeStartTime = CMTimeSubtract(targetDuration, fadeDuration)
+
+        let parameters = AVMutableAudioMixInputParameters(track: compositionTrack)
+        parameters.setVolume(1, at: .zero)
+        parameters.setVolumeRamp(
+            fromStartVolume: 1,
+            toEndVolume: 0,
+            timeRange: CMTimeRange(start: fadeStartTime, duration: fadeDuration)
+        )
+
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = [parameters]
+        return audioMix
+    }
+
     private func makeOverlayOpacityAnimation(
         totalDuration: TimeInterval,
         startProgress: Double,
@@ -608,24 +1049,73 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         font: UIFont,
         size: CGSize
     ) -> UIImage? {
+        makeAdvancedTextImage(
+            text: text,
+            font: font,
+            color: .white,
+            size: size,
+            shadow: nil,
+            glow: nil,
+            lineHeightMultiple: 1,
+            referenceText: text
+        )
+    }
+
+    private func makeAdvancedTextImage(
+        text: String,
+        font: UIFont,
+        color: UIColor,
+        size: CGSize,
+        shadow: NSShadow?,
+        glow: NSShadow?,
+        lineHeightMultiple: Double,
+        referenceText: String
+    ) -> UIImage? {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = UIScreen.main.scale
 
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .center
-        paragraphStyle.lineBreakMode = .byWordWrapping
+        let baseAttributedText = makeAttributedText(
+            text: text,
+            font: font,
+            color: color,
+            shadow: shadow,
+            glow: nil,
+            lineBreakMode: .byWordWrapping,
+            lineHeightMultiple: lineHeightMultiple
+        )
+        let glowAttributedText = glow.map {
+            makeAttributedText(
+                text: text,
+                font: font,
+                color: color.withAlphaComponent(0.96),
+                shadow: $0,
+                glow: $0,
+                lineBreakMode: .byWordWrapping,
+                lineHeightMultiple: lineHeightMultiple
+            )
+        }
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor.white,
-            .paragraphStyle: paragraphStyle,
-        ]
+        let referenceAttributedText = makeAttributedText(
+            text: referenceText,
+            font: font,
+            color: color,
+            shadow: shadow,
+            glow: glow,
+            lineBreakMode: .byWordWrapping,
+            lineHeightMultiple: lineHeightMultiple
+        )
 
-        let attributedText = NSAttributedString(string: text, attributes: attributes)
+        let measurementText = referenceAttributedText
+        let textInsets = makeTextInsets(for: shadow, glow: glow)
 
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            let insetBounds = CGRect(origin: .zero, size: size).insetBy(dx: 20, dy: 12)
-            let measuredRect = attributedText.boundingRect(
+            let insetBounds = CGRect(
+                x: textInsets.left,
+                y: textInsets.top,
+                width: size.width - textInsets.left - textInsets.right,
+                height: size.height - textInsets.top - textInsets.bottom
+            )
+            let measuredRect = measurementText.boundingRect(
                 with: insetBounds.size,
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
                 context: nil
@@ -636,8 +1126,36 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 width: insetBounds.width,
                 height: min(measuredRect.height, insetBounds.height)
             )
-            attributedText.draw(with: drawRect, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+
+            glowAttributedText?.draw(
+                with: drawRect,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+            baseAttributedText.draw(
+                with: drawRect,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
         }
+    }
+
+    private func makeTextInsets(for shadow: NSShadow?, glow: NSShadow?) -> UIEdgeInsets {
+        let shadowOffset = shadow?.shadowOffset ?? .zero
+        let glowBlurRadius = glow?.shadowBlurRadius ?? 0
+        let shadowBlurRadius = shadow?.shadowBlurRadius ?? 0
+        let horizontalPadding = max(20, abs(shadowOffset.width) + shadowBlurRadius + glowBlurRadius + 12)
+        let verticalPadding = max(12, abs(shadowOffset.height) + shadowBlurRadius + glowBlurRadius + 12)
+        return UIEdgeInsets(
+            top: verticalPadding,
+            left: horizontalPadding,
+            bottom: verticalPadding,
+            right: horizontalPadding
+        )
+    }
+
+    private func makeTextInsets(for shadow: NSShadow?) -> UIEdgeInsets {
+        makeTextInsets(for: shadow, glow: nil)
     }
 
     private func clearActiveExportSession(_ session: AVAssetExportSession) {
@@ -672,7 +1190,6 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
 
         guard
-            let cgImage = image.cgImage,
             let context = CGContext(
                 data: CVPixelBufferGetBaseAddress(pixelBuffer),
                 width: Int(size.width),
@@ -686,9 +1203,12 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             return nil
         }
 
-        context.translateBy(x: 0, y: size.height)
-        context.scaleBy(x: 1, y: -1)
-        context.draw(cgImage, in: CGRect(origin: .zero, size: size))
+        context.clear(CGRect(origin: .zero, size: size))
+        context.interpolationQuality = .high
+
+        UIGraphicsPushContext(context)
+        image.draw(in: CGRect(origin: .zero, size: size))
+        UIGraphicsPopContext()
 
         return pixelBuffer
     }
@@ -725,6 +1245,18 @@ private extension UIImage {
             draw(in: CGRect(origin: origin, size: scaledSize))
         }
     }
+
+    func flippedVertically() -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cgContext = context.cgContext
+            cgContext.translateBy(x: 0, y: size.height)
+            cgContext.scaleBy(x: 1, y: -1)
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
 }
 
 private extension UIImage.Orientation {
@@ -758,6 +1290,17 @@ private extension UIImage.Orientation {
         default:
             return false
         }
+    }
+}
+
+private extension ColorToken {
+    var uiColor: UIColor {
+        UIColor(
+            red: CGFloat(red),
+            green: CGFloat(green),
+            blue: CGFloat(blue),
+            alpha: 1
+        )
     }
 }
 

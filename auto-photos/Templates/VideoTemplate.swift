@@ -62,6 +62,15 @@ struct TemplateAudioTrack: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+struct TemplateImageAsset: Codable, Equatable, Hashable, Sendable {
+    let resourceName: String
+    let fileExtension: String
+
+    var assetURL: URL? {
+        Bundle.main.url(forResource: resourceName, withExtension: fileExtension)
+    }
+}
+
 struct TemplateTextPosition: Codable, Equatable, Hashable, Sendable {
     let x: Double
     let y: Double
@@ -82,6 +91,69 @@ struct TemplateTextOverlay: Codable, Equatable, Hashable, Sendable {
     let fontName: String
     let fontSize: Double
     let position: TemplateTextPosition
+}
+
+enum TemplateClipMediaMode: String, Codable, Equatable, Hashable, Sendable {
+    case automatic
+    case stillImage
+    case livePhotoMotionWhenAvailable
+}
+
+enum TemplateTextRevealMode: String, Codable, Equatable, Hashable, Sendable {
+    case fade
+    case typewriter
+}
+
+struct TemplateTextShadow: Codable, Equatable, Hashable, Sendable {
+    let offsetX: Double
+    let offsetY: Double
+    let blurRadius: Double
+    let color: ColorToken
+}
+
+struct TemplateTextGlow: Codable, Equatable, Hashable, Sendable {
+    let color: ColorToken
+    let blurRadius: Double
+    let opacity: Double
+}
+
+struct TemplateAnimatedTextOverlay: Codable, Equatable, Hashable, Sendable {
+    let text: String
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+    let fontName: String
+    let fontSize: Double
+    let position: TemplateTextPosition
+    let maxWidthRatio: Double
+    let color: ColorToken
+    let shadow: TemplateTextShadow?
+    let glow: TemplateTextGlow?
+    let revealMode: TemplateTextRevealMode
+    let lineHeightMultiple: Double
+
+    var normalizedMaxWidthRatio: Double {
+        min(max(maxWidthRatio, 0.2), 1)
+    }
+
+    var normalizedLineHeightMultiple: Double {
+        min(max(lineHeightMultiple, 0.8), 2)
+    }
+}
+
+struct TemplateCinematicIntroEffect: Codable, Equatable, Sendable {
+    let duration: TimeInterval
+    let barHeightRatio: Double
+    let textOverlays: [TemplateAnimatedTextOverlay]
+
+    var normalizedBarHeightRatio: Double {
+        min(max(barHeightRatio, 0), 0.45)
+    }
+}
+
+struct TemplateFrameOverlay: Codable, Equatable, Hashable, Sendable {
+    let imageAsset: TemplateImageAsset
+    let startTime: TimeInterval
+    let endTime: TimeInterval?
 }
 
 struct ColorToken: Codable, Equatable, Hashable, Sendable {
@@ -110,19 +182,120 @@ struct TemplateTheme: Codable, Equatable, Sendable {
     )
 }
 
-struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
+enum DynamicClipPattern: String, Codable, Equatable, Sendable {
+    case repeatAll
+    case rhythmFlex918
+}
+
+struct VideoTemplate: Codable, Identifiable, Equatable, Sendable { 
     let id: String
     let name: String
     let tagline: String
     let description: String
     let photoCount: Int
     let clipDurations: [TimeInterval]
+    let usesSelectionCount: Bool
+    let minimumPhotoCount: Int?
+    let maximumPhotoCount: Int?
+    let leadingClipDurations: [TimeInterval]
+    let repeatingClipDuration: TimeInterval?
+    let dynamicClipPattern: DynamicClipPattern
     let audioTrack: TemplateAudioTrack?
     let textOverlay: TemplateTextOverlay?
+    let clipMediaModes: [TemplateClipMediaMode]?
+    let cinematicIntro: TemplateCinematicIntroEffect?
+    let frameOverlay: TemplateFrameOverlay?
     let theme: TemplateTheme
 
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case tagline
+        case description
+        case photoCount
+        case clipDurations
+        case usesSelectionCount
+        case minimumPhotoCount
+        case maximumPhotoCount
+        case leadingClipDurations
+        case repeatingClipDuration
+        case dynamicClipPattern
+        case audioTrack
+        case textOverlay
+        case clipMediaModes
+        case cinematicIntro
+        case frameOverlay
+        case theme
+    }
+
+    init(
+        id: String,
+        name: String,
+        tagline: String,
+        description: String,
+        photoCount: Int,
+        clipDurations: [TimeInterval],
+        usesSelectionCount: Bool = false,
+        minimumPhotoCount: Int? = nil,
+        maximumPhotoCount: Int? = nil,
+        leadingClipDurations: [TimeInterval] = [],
+        repeatingClipDuration: TimeInterval? = nil,
+        dynamicClipPattern: DynamicClipPattern = .repeatAll,
+        audioTrack: TemplateAudioTrack?,
+        textOverlay: TemplateTextOverlay?,
+        clipMediaModes: [TemplateClipMediaMode]? = nil,
+        cinematicIntro: TemplateCinematicIntroEffect? = nil,
+        frameOverlay: TemplateFrameOverlay? = nil,
+        theme: TemplateTheme
+    ) {
+        self.id = id
+        self.name = name
+        self.tagline = tagline
+        self.description = description
+        self.photoCount = photoCount
+        self.clipDurations = clipDurations
+        self.usesSelectionCount = usesSelectionCount
+        self.minimumPhotoCount = minimumPhotoCount
+        self.maximumPhotoCount = maximumPhotoCount
+        self.leadingClipDurations = leadingClipDurations
+        self.repeatingClipDuration = repeatingClipDuration
+        self.dynamicClipPattern = dynamicClipPattern
+        self.audioTrack = audioTrack
+        self.textOverlay = textOverlay
+        self.clipMediaModes = clipMediaModes
+        self.cinematicIntro = cinematicIntro
+        self.frameOverlay = frameOverlay
+        self.theme = theme
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        tagline = try container.decode(String.self, forKey: .tagline)
+        description = try container.decode(String.self, forKey: .description)
+        photoCount = try container.decode(Int.self, forKey: .photoCount)
+        clipDurations = try container.decode([TimeInterval].self, forKey: .clipDurations)
+        usesSelectionCount = try container.decodeIfPresent(Bool.self, forKey: .usesSelectionCount) ?? false
+        minimumPhotoCount = try container.decodeIfPresent(Int.self, forKey: .minimumPhotoCount)
+        maximumPhotoCount = try container.decodeIfPresent(Int.self, forKey: .maximumPhotoCount)
+        leadingClipDurations = try container.decodeIfPresent([TimeInterval].self, forKey: .leadingClipDurations) ?? []
+        repeatingClipDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .repeatingClipDuration)
+        dynamicClipPattern = try container.decodeIfPresent(DynamicClipPattern.self, forKey: .dynamicClipPattern) ?? .repeatAll
+        audioTrack = try container.decodeIfPresent(TemplateAudioTrack.self, forKey: .audioTrack)
+        textOverlay = try container.decodeIfPresent(TemplateTextOverlay.self, forKey: .textOverlay)
+        clipMediaModes = try container.decodeIfPresent([TemplateClipMediaMode].self, forKey: .clipMediaModes)
+        cinematicIntro = try container.decodeIfPresent(TemplateCinematicIntroEffect.self, forKey: .cinematicIntro)
+        frameOverlay = try container.decodeIfPresent(TemplateFrameOverlay.self, forKey: .frameOverlay)
+        theme = try container.decode(TemplateTheme.self, forKey: .theme)
+    }
+
     var totalDuration: TimeInterval {
-        clipDurations.reduce(0, +)
+        if usesSelectionCount {
+            return repeatingClipDuration ?? 0
+        }
+
+        return clipDurations.reduce(0, +)
     }
 
     var supportsMusic: Bool {
@@ -134,7 +307,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
     }
 
     var supportsText: Bool {
-        textOverlay != nil
+        textOverlay != nil || cinematicIntro?.textOverlays.isEmpty == false
     }
 
     var previewRenderOptions: VideoRenderOptions {
@@ -144,11 +317,43 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         )
     }
 
+    func clipMediaMode(for clipIndex: Int) -> TemplateClipMediaMode {
+        guard let clipMediaModes, clipMediaModes.indices.contains(clipIndex) else {
+            return .automatic
+        }
+
+        return clipMediaModes[clipIndex]
+    }
+
     var selectionCaption: String {
-        "\(photoCount)장의 사진이 필요해요"
+        if usesSelectionCount {
+            if let minimumPhotoCount, let maximumPhotoCount {
+                return "\(minimumPhotoCount)~\(maximumPhotoCount)장의 사진을 사용할 수 있어요"
+            }
+
+            if let maximumPhotoCount {
+                return "최대 \(maximumPhotoCount)장의 사진을 사용할 수 있어요"
+            }
+
+            return "선택한 모든 사진을 사용해요"
+        }
+
+        return "\(photoCount)장의 사진이 필요해요"
     }
 
     func validationMessage(for count: Int) -> String? {
+        if usesSelectionCount {
+            if let minimumPhotoCount, count < minimumPhotoCount {
+                return "\(minimumPhotoCount)장 이상 선택해주세요. 현재 \(count)장"
+            }
+
+            if let maximumPhotoCount, count > maximumPhotoCount {
+                return "\(maximumPhotoCount)장까지만 사용할 수 있어요."
+            }
+
+            return nil
+        }
+
         if count < photoCount {
             return "\(photoCount)장 중 \(count)장 선택됨"
         }
@@ -158,5 +363,135 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         }
 
         return nil
+    }
+
+    func resolvedPhotoCount(for selectedCount: Int) -> Int {
+        usesSelectionCount ? selectedCount : photoCount
+    }
+
+    func resolvedClipDurations(for selectedCount: Int) -> [TimeInterval] {
+        if usesSelectionCount {
+            guard selectedCount > 0 else {
+                return []
+            }
+
+            switch dynamicClipPattern {
+            case .repeatAll:
+                break
+            case .rhythmFlex918:
+                return Self.makeRhythmFlex918Durations(for: selectedCount)
+            }
+
+            var durations: [TimeInterval] = []
+            let prefixCount = min(leadingClipDurations.count, selectedCount)
+
+            if prefixCount > 0 {
+                durations.append(contentsOf: leadingClipDurations.prefix(prefixCount))
+            }
+
+            if let repeatingClipDuration, selectedCount > prefixCount {
+                durations.append(contentsOf: Array(repeating: repeatingClipDuration, count: selectedCount - prefixCount))
+            }
+
+            return durations
+        }
+
+        return clipDurations
+    }
+
+    func totalDuration(for selectedCount: Int) -> TimeInterval {
+        resolvedClipDurations(for: selectedCount).reduce(0, +)
+    }
+
+    var countBadgeText: String {
+        if usesSelectionCount {
+            if let minimumPhotoCount, let maximumPhotoCount {
+                return "\(minimumPhotoCount)-\(maximumPhotoCount)"
+            }
+
+            if let maximumPhotoCount {
+                return "1-\(maximumPhotoCount)"
+            }
+
+            return "ALL"
+        }
+
+        return "\(photoCount)"
+    }
+
+    var durationBadgeText: String {
+        if usesSelectionCount {
+            if dynamicClipPattern == .rhythmFlex918 {
+                return "1.2~1.8s rhythm"
+            }
+
+            if
+                leadingClipDurations.count == 1,
+                let firstClipDuration = leadingClipDurations.first,
+                let repeatingClipDuration
+            {
+                return String(format: "%.1fs -> %.1fs", firstClipDuration, repeatingClipDuration)
+            }
+
+            if let repeatingClipDuration {
+                return String(format: "%.1fs / cut", repeatingClipDuration)
+            }
+        }
+
+        return String(format: "%.1fs", totalDuration)
+    }
+
+    var dynamicDurationHint: String? {
+        guard usesSelectionCount else {
+            return nil
+        }
+
+        if dynamicClipPattern == .rhythmFlex918 {
+            return "9~18장 범위에서 앞, 중간, 후반 리듬 구간이 자연스럽게 확장돼요."
+        }
+
+        if
+            leadingClipDurations.count == 1,
+            let firstClipDuration = leadingClipDurations.first,
+            let repeatingClipDuration
+        {
+            return String(format: "첫 컷 %.1f초, 이후 %.1f초씩 적용돼요.", firstClipDuration, repeatingClipDuration)
+        }
+
+        if let repeatingClipDuration {
+            return String(format: "사진마다 %.1f초씩 적용돼요.", repeatingClipDuration)
+        }
+
+        return nil
+    }
+
+    var isCustomTemplate: Bool {
+        id.hasPrefix("custom-")
+    }
+
+    var maximumSelectionCount: Int? {
+        usesSelectionCount ? maximumPhotoCount : photoCount
+    }
+
+    private static func makeRhythmFlex918Durations(for selectedCount: Int) -> [TimeInterval] {
+        guard (9...18).contains(selectedCount) else {
+            return []
+        }
+
+        var durations: [TimeInterval] = [1.8, 1.6, 1.6]
+        let earlyExtras = min(max(selectedCount - 9, 0), 3)
+        durations.append(contentsOf: Array(repeating: 1.6, count: earlyExtras))
+
+        durations.append(1.8)
+
+        let midExtras = min(max(selectedCount - 12, 0), 3)
+        durations.append(contentsOf: Array(repeating: 1.6, count: midExtras))
+
+        durations.append(contentsOf: [1.4, 1.4, 1.6, 1.2, 1.2])
+
+        let lateExtras = min(max(selectedCount - 15, 0), 3)
+        durations.append(contentsOf: Array(repeating: 1.2, count: lateExtras))
+
+        return durations
     }
 }

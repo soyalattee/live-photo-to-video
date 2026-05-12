@@ -9,6 +9,11 @@ import Foundation
 
 enum TemplateCatalog {
     static let templates: [VideoTemplate] = [
+        .lifeInFraems,
+        .rhythmFlex,
+        .allPhotosFlow,
+        .allPhotosSoftPulse,
+        .allPhotosSlowBloom,
         .miniLogPulse,
         .miniLogSmooth,
     ]
