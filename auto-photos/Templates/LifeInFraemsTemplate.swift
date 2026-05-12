@@ -11,16 +11,15 @@ extension VideoTemplate {
     static let lifeInFraems = VideoTemplate(
         id: "life-in-fraems",
         name: "Life in Fraems",
-        tagline: "23컷 시네마 오프닝 템플릿",
-        description: "23장의 사진과 Live Photo를 영화 오프닝처럼 펼쳐내는 세로형 템플릿",
-        photoCount: 23,
+        tagline: "24컷 시네마 오프닝 템플릿",
+        description: "24장의 사진과 Live Photo를 영화 오프닝처럼 펼쳐내는 세로형 템플릿",
+        photoCount: 24,
         clipDurations: [
             2.6,
             0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
             0.6, 0.5, 0.6, 0.5,
-            0.5, 0.5, 0.5, 0.5,
-            1.5,
-            1.0, 1.0, 1.0, 1.0, 1.0,
+            0.5, 0.5, 0.5, 0.5, 0.5,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
             1.1,
             1.3,
         ],
@@ -30,7 +29,7 @@ extension VideoTemplate {
             fileExtension: "WAV"
         ),
         textOverlay: nil,
-        clipMediaModes: (0..<23).map { index in
+        clipMediaModes: (0..<24).map { index in
             if index == 0 || index >= 16 {
                 return .livePhotoMotionWhenAvailable
             }
