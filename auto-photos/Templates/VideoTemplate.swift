@@ -118,6 +118,21 @@ struct TemplateTextGlow: Codable, Equatable, Hashable, Sendable {
     let opacity: Double
 }
 
+struct TemplateTextStroke: Codable, Equatable, Hashable, Sendable {
+    let color: ColorToken
+    let width: Double
+}
+
+struct TemplateIntroSparkle: Codable, Equatable, Hashable, Sendable {
+    let text: String
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+    let fontSize: Double
+    let position: TemplateTextPosition
+    let color: ColorToken
+    let phaseOffset: Double
+}
+
 struct TemplateAnimatedTextOverlay: Codable, Equatable, Hashable, Sendable {
     let text: String
     let startTime: TimeInterval
@@ -129,8 +144,82 @@ struct TemplateAnimatedTextOverlay: Codable, Equatable, Hashable, Sendable {
     let color: ColorToken
     let shadow: TemplateTextShadow?
     let glow: TemplateTextGlow?
+    let stroke: TemplateTextStroke?
+    let fillExpansion: Double?
+    let stacksBelowPreviousText: Bool
     let revealMode: TemplateTextRevealMode
     let lineHeightMultiple: Double
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case startTime
+        case endTime
+        case fontName
+        case fontSize
+        case position
+        case maxWidthRatio
+        case color
+        case shadow
+        case glow
+        case stroke
+        case fillExpansion
+        case stacksBelowPreviousText
+        case revealMode
+        case lineHeightMultiple
+    }
+
+    init(
+        text: String,
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        fontName: String,
+        fontSize: Double,
+        position: TemplateTextPosition,
+        maxWidthRatio: Double,
+        color: ColorToken,
+        shadow: TemplateTextShadow?,
+        glow: TemplateTextGlow?,
+        stroke: TemplateTextStroke? = nil,
+        fillExpansion: Double? = nil,
+        stacksBelowPreviousText: Bool = false,
+        revealMode: TemplateTextRevealMode,
+        lineHeightMultiple: Double
+    ) {
+        self.text = text
+        self.startTime = startTime
+        self.endTime = endTime
+        self.fontName = fontName
+        self.fontSize = fontSize
+        self.position = position
+        self.maxWidthRatio = maxWidthRatio
+        self.color = color
+        self.shadow = shadow
+        self.glow = glow
+        self.stroke = stroke
+        self.fillExpansion = fillExpansion
+        self.stacksBelowPreviousText = stacksBelowPreviousText
+        self.revealMode = revealMode
+        self.lineHeightMultiple = lineHeightMultiple
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        startTime = try container.decode(TimeInterval.self, forKey: .startTime)
+        endTime = try container.decode(TimeInterval.self, forKey: .endTime)
+        fontName = try container.decode(String.self, forKey: .fontName)
+        fontSize = try container.decode(Double.self, forKey: .fontSize)
+        position = try container.decode(TemplateTextPosition.self, forKey: .position)
+        maxWidthRatio = try container.decode(Double.self, forKey: .maxWidthRatio)
+        color = try container.decode(ColorToken.self, forKey: .color)
+        shadow = try container.decodeIfPresent(TemplateTextShadow.self, forKey: .shadow)
+        glow = try container.decodeIfPresent(TemplateTextGlow.self, forKey: .glow)
+        stroke = try container.decodeIfPresent(TemplateTextStroke.self, forKey: .stroke)
+        fillExpansion = try container.decodeIfPresent(Double.self, forKey: .fillExpansion)
+        stacksBelowPreviousText = try container.decodeIfPresent(Bool.self, forKey: .stacksBelowPreviousText) ?? false
+        revealMode = try container.decode(TemplateTextRevealMode.self, forKey: .revealMode)
+        lineHeightMultiple = try container.decode(Double.self, forKey: .lineHeightMultiple)
+    }
 
     var normalizedMaxWidthRatio: Double {
         min(max(maxWidthRatio, 0.2), 1)
@@ -145,6 +234,34 @@ struct TemplateCinematicIntroEffect: Codable, Equatable, Sendable {
     let duration: TimeInterval
     let barHeightRatio: Double
     let textOverlays: [TemplateAnimatedTextOverlay]
+    let sparkles: [TemplateIntroSparkle]
+
+    enum CodingKeys: String, CodingKey {
+        case duration
+        case barHeightRatio
+        case textOverlays
+        case sparkles
+    }
+
+    init(
+        duration: TimeInterval,
+        barHeightRatio: Double,
+        textOverlays: [TemplateAnimatedTextOverlay],
+        sparkles: [TemplateIntroSparkle] = []
+    ) {
+        self.duration = duration
+        self.barHeightRatio = barHeightRatio
+        self.textOverlays = textOverlays
+        self.sparkles = sparkles
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        duration = try container.decode(TimeInterval.self, forKey: .duration)
+        barHeightRatio = try container.decode(Double.self, forKey: .barHeightRatio)
+        textOverlays = try container.decode([TemplateAnimatedTextOverlay].self, forKey: .textOverlays)
+        sparkles = try container.decodeIfPresent([TemplateIntroSparkle].self, forKey: .sparkles) ?? []
+    }
 
     var normalizedBarHeightRatio: Double {
         min(max(barHeightRatio, 0), 0.45)
@@ -406,6 +523,14 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
                     )
                 },
                 glow: primaryOverlay.glow,
+                stroke: primaryOverlay.stroke.map {
+                    TemplateTextStroke(
+                        color: customization.shadowColor,
+                        width: $0.width
+                    )
+                },
+                fillExpansion: primaryOverlay.fillExpansion,
+                stacksBelowPreviousText: primaryOverlay.stacksBelowPreviousText,
                 revealMode: primaryOverlay.revealMode,
                 lineHeightMultiple: primaryOverlay.lineHeightMultiple
             )
@@ -424,6 +549,14 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
                 color: customization.textColor,
                 shadow: secondaryOverlay.shadow,
                 glow: secondaryOverlay.glow,
+                stroke: secondaryOverlay.stroke.map {
+                    TemplateTextStroke(
+                        color: customization.shadowColor,
+                        width: $0.width
+                    )
+                },
+                fillExpansion: secondaryOverlay.fillExpansion,
+                stacksBelowPreviousText: secondaryOverlay.stacksBelowPreviousText,
                 revealMode: secondaryOverlay.revealMode,
                 lineHeightMultiple: secondaryOverlay.lineHeightMultiple
             )
@@ -432,7 +565,8 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         return TemplateCinematicIntroEffect(
             duration: cinematicIntro.duration,
             barHeightRatio: cinematicIntro.barHeightRatio,
-            textOverlays: updatedOverlays
+            textOverlays: updatedOverlays,
+            sparkles: cinematicIntro.sparkles
         )
     }
 

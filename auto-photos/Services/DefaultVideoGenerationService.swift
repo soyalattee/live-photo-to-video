@@ -268,6 +268,9 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
 
         let sourceClipDuration = CMTimeCompare(sourceDuration, requestedDuration) < 0 ? sourceDuration : requestedDuration
+        let sourceStartTime = CMTimeCompare(sourceDuration, sourceClipDuration) > 0
+            ? CMTimeMultiplyByFloat64(CMTimeSubtract(sourceDuration, sourceClipDuration), multiplier: 0.5)
+            : .zero
         var outputDuration = sourceClipDuration
 
         let composition = AVMutableComposition()
@@ -279,7 +282,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
 
         try compositionTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: sourceClipDuration),
+            CMTimeRange(start: sourceStartTime, duration: sourceClipDuration),
             of: sourceTrack,
             at: .zero
         )
@@ -589,9 +592,14 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             return
         }
 
+        var previousTextLayer: CALayer?
         for overlay in effect.textOverlays where overlay.endTime > overlay.startTime {
             let textLayer = makeAnimatedTextLayer(for: overlay)
+            if overlay.stacksBelowPreviousText, let previousTextLayer {
+                position(textLayer, below: previousTextLayer)
+            }
             parentLayer.addSublayer(textLayer)
+            previousTextLayer = textLayer
 
             switch overlay.revealMode {
             case .fade:
@@ -615,6 +623,111 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 )
             }
         }
+
+        addIntroSparkles(
+            to: parentLayer,
+            sparkles: effect.sparkles,
+            totalDuration: totalDuration
+        )
+    }
+
+    private func position(_ textLayer: CALayer, below previousTextLayer: CALayer) {
+        let gap = renderSize.height * 0.012
+        var previousFrame = previousTextLayer.frame
+        var stackedFrame = textLayer.frame
+        stackedFrame.origin.y = previousFrame.minY - gap - stackedFrame.height
+
+        if stackedFrame.minY < 48 {
+            let adjustment = 48 - stackedFrame.minY
+            stackedFrame.origin.y += adjustment
+            previousFrame.origin.y += adjustment
+            previousTextLayer.frame = previousFrame
+        }
+
+        textLayer.frame = stackedFrame
+    }
+
+    private func addIntroSparkles(
+        to parentLayer: CALayer,
+        sparkles: [TemplateIntroSparkle],
+        totalDuration: TimeInterval
+    ) {
+        for sparkle in sparkles where sparkle.endTime > sparkle.startTime {
+            let sparkleLayer = makeSparkleLayer(for: sparkle)
+            parentLayer.addSublayer(sparkleLayer)
+
+            let startProgress = max(0, min(sparkle.startTime / totalDuration, 1))
+            let endProgress = max(startProgress, min(sparkle.endTime / totalDuration, 1))
+            let enterProgress = min((sparkle.startTime + 0.18) / totalDuration, endProgress)
+            let exitProgress = max(enterProgress, min((sparkle.endTime - 0.18) / totalDuration, 1))
+            let opacityAnimation = makeOverlayOpacityAnimation(
+                totalDuration: totalDuration,
+                startProgress: startProgress,
+                enterProgress: enterProgress,
+                exitProgress: exitProgress,
+                endProgress: endProgress
+            )
+            sparkleLayer.add(opacityAnimation, forKey: "sparkleOpacity")
+
+            let scaleAnimation = CAKeyframeAnimation(keyPath: "transform.scale")
+            scaleAnimation.values = [0.82, 1.06, 0.92, 1.03, 0.86]
+            scaleAnimation.keyTimes = [0, 0.2, 0.5, 0.78, 1]
+            scaleAnimation.beginTime = AVCoreAnimationBeginTimeAtZero + sparkle.startTime + sparkle.phaseOffset
+            scaleAnimation.duration = 1.85
+            scaleAnimation.repeatCount = .greatestFiniteMagnitude
+            scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            scaleAnimation.isRemovedOnCompletion = false
+            sparkleLayer.add(scaleAnimation, forKey: "sparkleTwinkle")
+
+            let rotationAnimation = CABasicAnimation(keyPath: "transform.rotation.z")
+            rotationAnimation.fromValue = -0.25
+            rotationAnimation.toValue = 0.25
+            rotationAnimation.beginTime = AVCoreAnimationBeginTimeAtZero + sparkle.startTime + sparkle.phaseOffset
+            rotationAnimation.duration = 2.4
+            rotationAnimation.autoreverses = true
+            rotationAnimation.repeatCount = .greatestFiniteMagnitude
+            rotationAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            rotationAnimation.isRemovedOnCompletion = false
+            sparkleLayer.add(rotationAnimation, forKey: "sparkleRotate")
+        }
+    }
+
+    private func makeSparkleLayer(for sparkle: TemplateIntroSparkle) -> CALayer {
+        let font = AppFontCatalog.uiKitFont(
+            "AvenirNext-DemiBold",
+            size: CGFloat(sparkle.fontSize),
+            fallbackWeight: .bold
+        )
+        let layerSize = CGSize(width: sparkle.fontSize * 2.4, height: sparkle.fontSize * 2.4)
+        let sparkleLayer = CALayer()
+        sparkleLayer.frame = CGRect(
+            x: (renderSize.width * sparkle.position.normalizedX) - (layerSize.width / 2),
+            y: (renderSize.height * sparkle.position.normalizedY) - (layerSize.height / 2),
+            width: layerSize.width,
+            height: layerSize.height
+        )
+        sparkleLayer.contentsGravity = .resizeAspect
+        sparkleLayer.contentsScale = UIScreen.main.scale
+        sparkleLayer.opacity = 0
+        sparkleLayer.contents = makeAdvancedTextImage(
+            text: sparkle.text,
+            font: font,
+            color: sparkle.color.uiColor,
+            size: layerSize,
+            shadow: nil,
+            glow: makeGlow(
+                from: TemplateTextGlow(
+                    color: sparkle.color,
+                    blurRadius: 12,
+                    opacity: 0.85
+                )
+            ),
+            stroke: nil,
+            fillExpansion: nil,
+            lineHeightMultiple: 1,
+            referenceText: sparkle.text
+        )?.cgImage
+        return sparkleLayer
     }
 
     private func addLetterboxLayer(
@@ -657,12 +770,14 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             color: overlay.color.uiColor,
             shadow: overlay.shadow.map(makeShadow),
             glow: overlay.glow.map(makeGlow),
+            stroke: overlay.stroke,
             lineBreakMode: .byWordWrapping,
             lineHeightMultiple: overlay.normalizedLineHeightMultiple
         )
         let textInsets = makeTextInsets(
             for: overlay.shadow.map(makeShadow),
-            glow: overlay.glow.map(makeGlow)
+            glow: overlay.glow.map(makeGlow),
+            stroke: overlay.stroke
         )
         let measuredHeight = min(
             ceil(
@@ -701,6 +816,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 size: textFrame.size,
                 shadow: overlay.shadow.map(makeShadow),
                 glow: overlay.glow.map(makeGlow),
+                stroke: overlay.stroke,
+                fillExpansion: overlay.fillExpansion,
                 lineHeightMultiple: overlay.normalizedLineHeightMultiple,
                 referenceText: overlay.text
             )?.cgImage
@@ -732,6 +849,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 size: textLayer.bounds.size,
                 shadow: overlay.shadow.map(makeShadow),
                 glow: overlay.glow.map(makeGlow),
+                stroke: overlay.stroke,
+                fillExpansion: overlay.fillExpansion,
                 lineHeightMultiple: overlay.normalizedLineHeightMultiple,
                 referenceText: overlay.text
             )?.cgImage
@@ -787,6 +906,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         color: UIColor,
         shadow: NSShadow?,
         glow: NSShadow?,
+        stroke: TemplateTextStroke?,
         lineBreakMode: NSLineBreakMode,
         lineHeightMultiple: Double
     ) -> NSAttributedString {
@@ -794,6 +914,9 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         paragraphStyle.alignment = .center
         paragraphStyle.lineBreakMode = lineBreakMode
         paragraphStyle.lineHeightMultiple = CGFloat(lineHeightMultiple)
+        let fixedLineHeight = font.pointSize * CGFloat(lineHeightMultiple)
+        paragraphStyle.minimumLineHeight = fixedLineHeight
+        paragraphStyle.maximumLineHeight = fixedLineHeight
 
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -1077,6 +1200,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             size: size,
             shadow: nil,
             glow: nil,
+            stroke: nil,
+            fillExpansion: nil,
             lineHeightMultiple: 1,
             referenceText: text
         )
@@ -1089,6 +1214,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         size: CGSize,
         shadow: NSShadow?,
         glow: NSShadow?,
+        stroke: TemplateTextStroke?,
+        fillExpansion: Double?,
         lineHeightMultiple: Double,
         referenceText: String
     ) -> UIImage? {
@@ -1101,9 +1228,22 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             color: color,
             shadow: shadow,
             glow: nil,
+            stroke: stroke,
             lineBreakMode: .byWordWrapping,
             lineHeightMultiple: lineHeightMultiple
         )
+        let outlineAttributedText = stroke.map {
+            makeAttributedText(
+                text: text,
+                font: font,
+                color: $0.color.uiColor,
+                shadow: nil,
+                glow: nil,
+                stroke: nil,
+                lineBreakMode: .byWordWrapping,
+                lineHeightMultiple: lineHeightMultiple
+            )
+        }
         let glowAttributedText = glow.map {
             makeAttributedText(
                 text: text,
@@ -1111,6 +1251,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 color: color.withAlphaComponent(0.96),
                 shadow: $0,
                 glow: $0,
+                stroke: stroke,
                 lineBreakMode: .byWordWrapping,
                 lineHeightMultiple: lineHeightMultiple
             )
@@ -1122,12 +1263,13 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             color: color,
             shadow: shadow,
             glow: glow,
+            stroke: stroke,
             lineBreakMode: .byWordWrapping,
             lineHeightMultiple: lineHeightMultiple
         )
 
         let measurementText = referenceAttributedText
-        let textInsets = makeTextInsets(for: shadow, glow: glow)
+        let textInsets = makeTextInsets(for: shadow, glow: glow, stroke: stroke)
 
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in
             let insetBounds = CGRect(
@@ -1148,11 +1290,25 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 height: min(measuredRect.height, insetBounds.height)
             )
 
+            if let stroke, let outlineAttributedText {
+                drawOutlinedText(
+                    outlineAttributedText,
+                    in: drawRect,
+                    radius: CGFloat(stroke.width)
+                )
+            }
             glowAttributedText?.draw(
                 with: drawRect,
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
                 context: nil
             )
+            if let fillExpansion, fillExpansion > 0 {
+                drawExpandedText(
+                    baseAttributedText,
+                    in: drawRect,
+                    expansion: CGFloat(fillExpansion)
+                )
+            }
             baseAttributedText.draw(
                 with: drawRect,
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -1161,12 +1317,75 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
     }
 
-    private func makeTextInsets(for shadow: NSShadow?, glow: NSShadow?) -> UIEdgeInsets {
+    private func drawOutlinedText(
+        _ text: NSAttributedString,
+        in rect: CGRect,
+        radius: CGFloat
+    ) {
+        let step = max(radius / 3, 1.4)
+        var currentRadius = step
+
+        while currentRadius <= radius {
+            let diagonalOffset = currentRadius * 0.707
+            let offsets = [
+                CGPoint(x: -currentRadius, y: 0),
+                CGPoint(x: currentRadius, y: 0),
+                CGPoint(x: 0, y: -currentRadius),
+                CGPoint(x: 0, y: currentRadius),
+                CGPoint(x: -diagonalOffset, y: -diagonalOffset),
+                CGPoint(x: diagonalOffset, y: -diagonalOffset),
+                CGPoint(x: -diagonalOffset, y: diagonalOffset),
+                CGPoint(x: diagonalOffset, y: diagonalOffset),
+            ]
+
+            for offset in offsets {
+                text.draw(
+                    with: rect.offsetBy(dx: offset.x, dy: offset.y),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+            }
+
+            currentRadius += step
+        }
+    }
+
+    private func drawExpandedText(
+        _ text: NSAttributedString,
+        in rect: CGRect,
+        expansion: CGFloat
+    ) {
+        let offsets = [
+            CGPoint(x: -expansion, y: 0),
+            CGPoint(x: expansion, y: 0),
+            CGPoint(x: 0, y: -expansion),
+            CGPoint(x: 0, y: expansion),
+            CGPoint(x: -expansion * 0.7, y: -expansion * 0.7),
+            CGPoint(x: expansion * 0.7, y: -expansion * 0.7),
+            CGPoint(x: -expansion * 0.7, y: expansion * 0.7),
+            CGPoint(x: expansion * 0.7, y: expansion * 0.7),
+        ]
+
+        for offset in offsets {
+            text.draw(
+                with: rect.offsetBy(dx: offset.x, dy: offset.y),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+        }
+    }
+
+    private func makeTextInsets(
+        for shadow: NSShadow?,
+        glow: NSShadow?,
+        stroke: TemplateTextStroke?
+    ) -> UIEdgeInsets {
         let shadowOffset = shadow?.shadowOffset ?? .zero
         let glowBlurRadius = glow?.shadowBlurRadius ?? 0
         let shadowBlurRadius = shadow?.shadowBlurRadius ?? 0
-        let horizontalPadding = max(20, abs(shadowOffset.width) + shadowBlurRadius + glowBlurRadius + 12)
-        let verticalPadding = max(12, abs(shadowOffset.height) + shadowBlurRadius + glowBlurRadius + 12)
+        let strokePadding = stroke.map { abs($0.width) * 1.8 } ?? 0
+        let horizontalPadding = max(20, abs(shadowOffset.width) + shadowBlurRadius + glowBlurRadius + strokePadding + 12)
+        let verticalPadding = max(12, abs(shadowOffset.height) + shadowBlurRadius + glowBlurRadius + strokePadding + 12)
         return UIEdgeInsets(
             top: verticalPadding,
             left: horizontalPadding,
@@ -1176,7 +1395,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
     }
 
     private func makeTextInsets(for shadow: NSShadow?) -> UIEdgeInsets {
-        makeTextInsets(for: shadow, glow: nil)
+        makeTextInsets(for: shadow, glow: nil, stroke: nil)
     }
 
     private func clearActiveExportSession(_ session: AVAssetExportSession) {

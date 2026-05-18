@@ -12,12 +12,14 @@ import CoreText
 enum AppFontName {
     static let kukdeTopokkiLight = "SDKukdetopokki-aLt"
     static let kukdeTopokkiBold = "SDKukdetopokki-bBd"
+    static let kotraHope = "KOTRAHOPE"
 }
 
 enum AppFontCatalog {
     private static let bundledFonts: [(fontName: String, resourceName: String, fileExtension: String)] = [
         (AppFontName.kukdeTopokkiLight, "SDKukdetopokki-aLt", "otf"),
         (AppFontName.kukdeTopokkiBold, "SDKukdetopokki-bBd", "otf"),
+        (AppFontName.kotraHope, "KOTRA HOPE", "otf"),
     ]
     private static var registeredFontNames = Set<String>()
 

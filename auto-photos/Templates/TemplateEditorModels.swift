@@ -17,6 +17,7 @@ struct TemplateFontPreset: Identifiable, Hashable, Sendable {
         TemplateFontPreset(id: "avenir-demi", name: "Avenir DemiBold", fontName: "AvenirNext-DemiBold"),
         TemplateFontPreset(id: "kukde-topokki-light", name: "Kukde Topokki Light", fontName: AppFontName.kukdeTopokkiLight),
         TemplateFontPreset(id: "kukde-topokki-bold", name: "Kukde Topokki Bold", fontName: AppFontName.kukdeTopokkiBold),
+        TemplateFontPreset(id: "kotra-hope", name: "KOTRA HOPE", fontName: AppFontName.kotraHope),
         TemplateFontPreset(id: "georgia-bold", name: "Georgia Bold", fontName: "Georgia-Bold"),
         TemplateFontPreset(id: "marker-felt", name: "Marker Felt", fontName: "MarkerFelt-Wide"),
         TemplateFontPreset(id: "snell-bold", name: "Snell Roundhand Bold", fontName: "SnellRoundhand-Bold"),
