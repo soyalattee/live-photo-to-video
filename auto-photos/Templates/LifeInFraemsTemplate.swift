@@ -15,7 +15,7 @@ extension VideoTemplate {
         description: "24장의 사진과 Live Photo를 영화 오프닝처럼 펼쳐내는 세로형 템플릿",
         photoCount: 24,
         clipDurations: [
-            2.6,
+            2.9,
             0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
             0.6, 0.5, 0.6, 0.5,
             0.5, 0.5, 0.5, 0.5, 0.5,
@@ -37,13 +37,13 @@ extension VideoTemplate {
             return .stillImage
         },
         cinematicIntro: TemplateCinematicIntroEffect(
-            duration: 2.6,
+            duration: 2.9,
             barHeightRatio: 0.335,
             textOverlays: [
                 TemplateAnimatedTextOverlay(
                     text: "LIFE IN FRAEMS",
                     startTime: 0,
-                    endTime: 2.6,
+                    endTime: 2.9,
                     fontName: AppFontName.kukdeTopokkiBold,
                     fontSize: 130,
                     position: TemplateTextPosition(x: 0.5, y: 0.49),
@@ -62,7 +62,7 @@ extension VideoTemplate {
                 TemplateAnimatedTextOverlay(
                     text: "A JOURNEY TOLD IN MOMENTS",
                     startTime: 1.6,
-                    endTime: 2.6,
+                    endTime: 2.9,
                     fontName: "AvenirNext-DemiBold",
                     fontSize: 32,
                     position: TemplateTextPosition(x: 0.5, y: 0.57),
@@ -84,7 +84,7 @@ extension VideoTemplate {
                 resourceName: "record_frame",
                 fileExtension: "PNG"
             ),
-            startTime: 2.6,
+            startTime: 2.9,
             endTime: nil
         ),
         theme: TemplateTheme(

@@ -167,6 +167,16 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             }
 
             return try await makeStillClip(from: photoRepresentation, duration: duration)
+        case .video:
+            let sourceVideoURL = try await exportVideoURL(for: item.assetLocalIdentifier)
+            defer { try? FileManager.default.removeItem(at: sourceVideoURL) }
+
+            return try await makeNormalizedMotionClip(
+                from: sourceVideoURL,
+                duration: duration,
+                mirrorHorizontally: false,
+                missingVideoError: .videoAssetNotFound
+            )
         }
     }
 
@@ -248,11 +258,25 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         duration: TimeInterval,
         mirrorHorizontally: Bool
     ) async throws -> PreparedClip {
+        try await makeNormalizedMotionClip(
+            from: sourceURL,
+            duration: duration,
+            mirrorHorizontally: mirrorHorizontally,
+            missingVideoError: .livePhotoVideoNotFound
+        )
+    }
+
+    private func makeNormalizedMotionClip(
+        from sourceURL: URL,
+        duration: TimeInterval,
+        mirrorHorizontally: Bool,
+        missingVideoError: AutoPhotosError
+    ) async throws -> PreparedClip {
         let asset = AVURLAsset(url: sourceURL)
         let tracks = try await asset.loadTracks(withMediaType: .video)
 
         guard let sourceTrack = tracks.first else {
-            throw AutoPhotosError.livePhotoVideoNotFound
+            throw missingVideoError
         }
 
         let sourceDuration = try await asset.load(.duration)
@@ -264,7 +288,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             sourceDuration.seconds > 0,
             requestedDuration.seconds > 0
         else {
-            throw AutoPhotosError.livePhotoVideoNotFound
+            throw missingVideoError
         }
 
         let sourceClipDuration = CMTimeCompare(sourceDuration, requestedDuration) < 0 ? sourceDuration : requestedDuration
@@ -312,7 +336,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         instruction.layerInstructions = [layerInstruction]
         videoComposition.instructions = [instruction]
 
-        let outputURL = makeTemporaryURL(prefix: "auto-photos-live", pathExtension: "mp4")
+        let outputURL = makeTemporaryURL(prefix: "auto-photos-motion", pathExtension: "mp4")
         try await export(asset: composition, videoComposition: videoComposition, to: outputURL)
 
         return PreparedClip(url: outputURL, duration: outputDuration)
@@ -1082,6 +1106,42 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
             return nil
+        }
+    }
+
+    private func exportVideoURL(for identifier: String) async throws -> URL {
+        guard let asset = fetchAsset(with: identifier) else {
+            throw AutoPhotosError.assetNotFound
+        }
+
+        guard
+            let resource = PHAssetResource.assetResources(for: asset).first(where: {
+                $0.type == .video || $0.type == .fullSizeVideo
+            })
+        else {
+            throw AutoPhotosError.videoAssetNotFound
+        }
+
+        let outputURL = makeTemporaryURL(prefix: "auto-photos-source-video", pathExtension: resource.originalFilename.pathExtensionOrDefault)
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                PHAssetResourceManager.default().writeData(for: resource, toFile: outputURL, options: options) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
+                    continuation.resume(returning: ())
+                }
+            }
+
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw AutoPhotosError.videoAssetNotFound
         }
     }
 

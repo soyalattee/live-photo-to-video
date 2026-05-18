@@ -37,7 +37,14 @@ final class DefaultPhotoLibraryService: PhotoLibraryService {
         }
 
         let thumbnail = try await requestThumbnail(for: asset)
-        let kind: MediaKind = asset.mediaSubtypes.contains(.photoLive) ? .livePhoto : .photo
+        let kind: MediaKind
+        if asset.mediaType == .video {
+            kind = .video
+        } else if asset.mediaSubtypes.contains(.photoLive) {
+            kind = .livePhoto
+        } else {
+            kind = .photo
+        }
 
         return SelectedMediaItem(
             assetLocalIdentifier: identifier,

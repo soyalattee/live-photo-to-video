@@ -12,6 +12,18 @@ import UIKit
 enum MediaKind: String, CaseIterable, Sendable {
     case photo
     case livePhoto
+    case video
+
+    var displayName: String {
+        switch self {
+        case .photo:
+            return "Photo"
+        case .livePhoto:
+            return "Live Photo"
+        case .video:
+            return "Video"
+        }
+    }
 }
 
 struct SelectedMediaItem: Identifiable {
@@ -68,7 +80,7 @@ enum GenerationStep: String, CaseIterable, Sendable {
     var subtitle: String {
         switch self {
         case .preparing:
-            return "선택한 사진과 Live Photo를 템플릿 순서에 맞게 준비하고 있어요."
+            return "선택한 사진, Live Photo, 영상을 템플릿 순서에 맞게 준비하고 있어요."
         case .composing:
             return "각 장면 길이와 비율을 맞춰 세로형 타임라인을 만들고 있어요."
         case .exporting:
@@ -150,6 +162,7 @@ enum AutoPhotosError: LocalizedError, Equatable {
     case assetNotFound
     case imageLoadingFailed
     case livePhotoVideoNotFound
+    case videoAssetNotFound
     case exportFailed
     case savePermissionDenied
     case saveFailed
@@ -165,6 +178,8 @@ enum AutoPhotosError: LocalizedError, Equatable {
             return "사진을 불러오는 중 문제가 생겼어요."
         case .livePhotoVideoNotFound:
             return "Live Photo 영상을 찾지 못했어요."
+        case .videoAssetNotFound:
+            return "선택한 영상을 불러오지 못했어요."
         case .exportFailed:
             return "영상 생성에 실패했어요. 다시 시도해주세요."
         case .savePermissionDenied:

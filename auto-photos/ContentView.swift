@@ -855,7 +855,7 @@ private struct MediaPickerSheet: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.selectionLimit = selectionLimit
-        configuration.filter = .any(of: [.images, .livePhotos])
+        configuration.filter = .any(of: [.images, .livePhotos, .videos])
 
         let controller = PHPickerViewController(configuration: configuration)
         controller.delegate = context.coordinator
@@ -1283,7 +1283,7 @@ private struct ReorderThumbnailCardView: View {
                     .font(.custom("AvenirNextCondensed-Bold", size: 20))
                     .foregroundStyle(BrandPalette.ink)
 
-                Text(item.kind == .livePhoto ? "Live Photo" : "Photo")
+                Text(item.kind.displayName)
                     .font(.custom("AvenirNext-DemiBold", size: 11))
                     .foregroundStyle(BrandPalette.cocoa)
             }
