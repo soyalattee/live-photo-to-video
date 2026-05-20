@@ -142,7 +142,7 @@ struct LocketInputField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(label)
+            Text(label.uppercased())
                 .font(LocketTheme.sans(12, weight: .bold))
                 .tracking(1.2)
                 .foregroundStyle(Color(hex: 0xA83255))
