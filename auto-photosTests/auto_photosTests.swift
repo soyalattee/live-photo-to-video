@@ -324,7 +324,8 @@ struct auto_photosTests {
             photoLibraryService: MockPhotoLibraryService(),
             videoGenerationService: generator,
             videoSaveService: saver,
-            templateLibraryService: MockTemplateLibraryService()
+            templateLibraryService: MockTemplateLibraryService(),
+            l10n: L10n(language: .korean)
         )
 
         viewModel.selectTemplate(template)
