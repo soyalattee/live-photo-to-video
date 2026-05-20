@@ -29,6 +29,30 @@ struct auto_photosTests {
         #expect(L10n(language: .english).chooseMedia == "Choose Media")
     }
 
+    @Test("미디어 종류 이름은 L10n 언어에 맞게 표시된다")
+    func mediaKindDisplayNamesAreLocalized() {
+        let ko = L10n(language: .korean)
+        let en = L10n(language: .english)
+
+        #expect(MediaKind.photo.displayName(using: ko) == "사진")
+        #expect(MediaKind.livePhoto.displayName(using: ko) == "Live Photo")
+        #expect(MediaKind.video.displayName(using: ko) == "영상")
+        #expect(MediaKind.photo.displayName(using: en) == "Photo")
+        #expect(MediaKind.livePhoto.displayName(using: en) == "Live Photo")
+        #expect(MediaKind.video.displayName(using: en) == "Video")
+    }
+
+    @Test("생성 단계 문구는 L10n 언어에 맞게 표시된다")
+    func generationStepCopyIsLocalized() {
+        let ko = L10n(language: .korean)
+        let en = L10n(language: .english)
+
+        #expect(GenerationStep.preparing.title(using: ko) == "소스를 정리하는 중")
+        #expect(GenerationStep.preparing.title(using: en) == "Preparing sources")
+        #expect(GenerationStep.preparing.subtitle(using: ko).contains("미디어"))
+        #expect(GenerationStep.preparing.subtitle(using: en).contains("media"))
+    }
+
     @Test("템플릿은 정확한 사진 수와 총 길이를 관리한다")
     func templateValidationAndDuration() {
         let template = TemplateCatalog.templates[0]

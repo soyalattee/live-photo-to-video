@@ -85,6 +85,23 @@ final class AutoPhotosViewModel: ObservableObject {
         return "\(selectedItems.count)/\(selectedTemplate.photoCount)장 선택"
     }
 
+    func localizedSelectionSummary(using l10n: L10n = L10n()) -> String {
+        guard let selectedTemplate else {
+            return l10n.chooseTemplateFirst
+        }
+
+        let unit = l10n.language == .korean ? "개" : "items"
+        if selectedTemplate.usesSelectionCount {
+            if let maximumSelectionCount = selectedTemplate.maximumSelectionCount {
+                return "\(selectedItems.count)/\(maximumSelectionCount) \(unit)"
+            }
+
+            return "\(selectedItems.count) \(unit)"
+        }
+
+        return "\(selectedItems.count)/\(selectedTemplate.photoCount) \(unit)"
+    }
+
     var estimatedDurationText: String {
         guard let selectedTemplate else {
             return "템플릿을 먼저 고르면 예상 길이를 보여드려요."
@@ -99,6 +116,19 @@ final class AutoPhotosViewModel: ObservableObject {
         }
 
         return String(format: "예상 길이 %.1f초", selectedTemplate.totalDuration)
+    }
+
+    func localizedEstimatedDurationText(using l10n: L10n = L10n()) -> String {
+        guard let selectedTemplate else {
+            return l10n.language == .korean ? "템플릿을 먼저 고르면 예상 길이를 보여드려요." : "Choose a template to see the estimated duration."
+        }
+
+        if selectedTemplate.usesSelectionCount && selectedItems.isEmpty {
+            return selectedTemplate.dynamicDurationHint ?? (l10n.language == .korean ? "선택한 미디어 길이를 자동으로 맞춰드려요." : "The selected media timing will be arranged automatically.")
+        }
+
+        let duration = selectedTemplate.usesSelectionCount ? selectedTemplate.totalDuration(for: selectedItems.count) : selectedTemplate.totalDuration
+        return l10n.language == .korean ? String(format: "예상 길이 %.1f초", duration) : String(format: "Estimated %.1fs", duration)
     }
 
     var canGenerate: Bool {
@@ -140,6 +170,22 @@ final class AutoPhotosViewModel: ObservableObject {
 
         if !selectedTemplate.supportsText {
             return "이 템플릿은 텍스트 오버레이 없이 출력돼요."
+        }
+
+        return nil
+    }
+
+    func localizedExportSectionNote(using l10n: L10n = L10n()) -> String? {
+        guard let selectedTemplate else {
+            return nil
+        }
+
+        if selectedTemplate.supportsMusic && !selectedTemplate.isMusicAvailable {
+            return l10n.templateBGMUnavailable
+        }
+
+        if !selectedTemplate.supportsText {
+            return l10n.textUnavailable
         }
 
         return nil

@@ -15,12 +15,20 @@ enum MediaKind: String, CaseIterable, Sendable {
     case video
 
     var displayName: String {
-        switch self {
-        case .photo:
+        displayName(using: L10n())
+    }
+
+    func displayName(using l10n: L10n) -> String {
+        switch (self, l10n.language) {
+        case (.photo, .korean):
+            return "사진"
+        case (.photo, .english):
             return "Photo"
-        case .livePhoto:
+        case (.livePhoto, _):
             return "Live Photo"
-        case .video:
+        case (.video, .korean):
+            return "영상"
+        case (.video, .english):
             return "Video"
         }
     }
@@ -70,24 +78,44 @@ enum GenerationStep: String, CaseIterable, Sendable {
     case exporting
 
     var title: String {
-        switch self {
-        case .preparing:
+        title(using: L10n())
+    }
+
+    func title(using l10n: L10n) -> String {
+        switch (self, l10n.language) {
+        case (.preparing, .korean):
             return "소스를 정리하는 중"
-        case .composing:
+        case (.preparing, .english):
+            return "Preparing sources"
+        case (.composing, .korean):
             return "템플릿 컷을 배치하는 중"
-        case .exporting:
+        case (.composing, .english):
+            return "Arranging template cuts"
+        case (.exporting, .korean):
             return "최종 영상을 굽는 중"
+        case (.exporting, .english):
+            return "Exporting final video"
         }
     }
 
     var subtitle: String {
-        switch self {
-        case .preparing:
-            return "선택한 사진, Live Photo, 영상을 템플릿 순서에 맞게 준비하고 있어요."
-        case .composing:
+        subtitle(using: L10n())
+    }
+
+    func subtitle(using l10n: L10n) -> String {
+        switch (self, l10n.language) {
+        case (.preparing, .korean):
+            return "선택한 미디어를 템플릿 순서에 맞게 준비하고 있어요."
+        case (.preparing, .english):
+            return "Preparing your selected media for the template sequence."
+        case (.composing, .korean):
             return "각 장면 길이와 비율을 맞춰 세로형 타임라인을 만들고 있어요."
-        case .exporting:
+        case (.composing, .english):
+            return "Building a vertical timeline with the right timing and crop for each scene."
+        case (.exporting, .korean):
             return "미리보기와 저장에 사용할 MP4를 내보내는 중이에요."
+        case (.exporting, .english):
+            return "Exporting the MP4 used for preview, saving, and sharing."
         }
     }
 }
