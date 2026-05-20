@@ -90,7 +90,7 @@ final class AutoPhotosViewModel: ObservableObject {
             return l10n.chooseTemplateFirst
         }
 
-        let unit = l10n.language == .korean ? "개" : "items"
+        let unit = l10n.language == .korean ? "개" : selectedItems.count == 1 ? "item" : "items"
         if selectedTemplate.usesSelectionCount {
             if let maximumSelectionCount = selectedTemplate.maximumSelectionCount {
                 return "\(selectedItems.count)/\(maximumSelectionCount) \(unit)"
@@ -124,7 +124,9 @@ final class AutoPhotosViewModel: ObservableObject {
         }
 
         if selectedTemplate.usesSelectionCount && selectedItems.isEmpty {
-            return selectedTemplate.dynamicDurationHint ?? (l10n.language == .korean ? "선택한 미디어 길이를 자동으로 맞춰드려요." : "The selected media timing will be arranged automatically.")
+            return l10n.language == .korean
+                ? selectedTemplate.dynamicDurationHint ?? "선택한 미디어 길이를 자동으로 맞춰드려요."
+                : "The selected media timing will be arranged automatically."
         }
 
         let duration = selectedTemplate.usesSelectionCount ? selectedTemplate.totalDuration(for: selectedItems.count) : selectedTemplate.totalDuration

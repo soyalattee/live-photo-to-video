@@ -53,6 +53,77 @@ struct auto_photosTests {
         #expect(GenerationStep.preparing.subtitle(using: en).contains("media"))
     }
 
+    @Test("선택 요약은 ViewModel 헬퍼에서 L10n 언어에 맞게 표시된다")
+    func localizedSelectionSummaryUsesL10nLanguage() {
+        let viewModel = makeViewModel()
+        let en = L10n(language: .english)
+
+        #expect(viewModel.localizedSelectionSummary(using: en) == en.chooseTemplateFirst)
+
+        viewModel.selectTemplate(VideoTemplate.lockScreenLog)
+        viewModel.applyResolvedSelection([makeItem(index: 0, kind: .photo)])
+
+        #expect(viewModel.localizedSelectionSummary(using: en) == "1 item")
+    }
+
+    @Test("동적 템플릿 예상 길이 문구는 ViewModel 헬퍼에서 L10n 언어에 맞게 표시된다")
+    func localizedDynamicDurationTextUsesL10nLanguage() {
+        let viewModel = makeViewModel()
+        viewModel.selectTemplate(VideoTemplate.lockScreenLog)
+
+        #expect(viewModel.localizedEstimatedDurationText(using: L10n(language: .korean)).contains("첫 컷"))
+        #expect(viewModel.localizedEstimatedDurationText(using: L10n(language: .english)) == "The selected media timing will be arranged automatically.")
+    }
+
+    @Test("내보내기 안내는 BGM 누락을 텍스트 안내보다 먼저 표시한다")
+    func localizedExportNotePrioritizesMissingBGM() {
+        let viewModel = makeViewModel()
+        let en = L10n(language: .english)
+        let template = VideoTemplate(
+            id: "missing-bgm-with-text",
+            name: "Missing BGM With Text",
+            tagline: "tag",
+            description: "desc",
+            photoCount: 1,
+            clipDurations: [1.0],
+            audioTrack: .bundled(title: "Missing", resourceName: "missing-bgm-resource", fileExtension: "wav"),
+            textOverlay: TemplateTextOverlay(
+                text: "caption",
+                startTime: 0,
+                endTime: 1,
+                fontName: "AvenirNext-Bold",
+                fontSize: 48,
+                position: TemplateTextPosition(x: 0.5, y: 0.5)
+            ),
+            theme: .brandDefault
+        )
+
+        viewModel.selectTemplate(template)
+
+        #expect(viewModel.localizedExportSectionNote(using: en) == en.templateBGMUnavailable)
+    }
+
+    @Test("내보내기 안내는 텍스트 미지원 템플릿을 L10n 언어에 맞게 표시한다")
+    func localizedExportNoteUsesL10nTextUnavailable() {
+        let viewModel = makeViewModel()
+        let en = L10n(language: .english)
+        let template = VideoTemplate(
+            id: "no-audio-no-text",
+            name: "No Audio No Text",
+            tagline: "tag",
+            description: "desc",
+            photoCount: 1,
+            clipDurations: [1.0],
+            audioTrack: nil,
+            textOverlay: nil,
+            theme: .brandDefault
+        )
+
+        viewModel.selectTemplate(template)
+
+        #expect(viewModel.localizedExportSectionNote(using: en) == en.textUnavailable)
+    }
+
     @Test("템플릿은 정확한 사진 수와 총 길이를 관리한다")
     func templateValidationAndDuration() {
         let template = TemplateCatalog.templates[0]
