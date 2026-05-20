@@ -384,6 +384,17 @@ final class AutoPhotosViewModel: ObservableObject {
         selectedItems = reindexed(updatedItems)
     }
 
+    func moveItemToEnd(_ item: SelectedMediaItem) {
+        guard let sourceIndex = selectedItems.firstIndex(where: { $0.id == item.id }) else {
+            return
+        }
+
+        var updatedItems = selectedItems
+        let movingItem = updatedItems.remove(at: sourceIndex)
+        updatedItems.append(movingItem)
+        selectedItems = reindexed(updatedItems)
+    }
+
     func removeItem(_ item: SelectedMediaItem) {
         selectedItems.removeAll { $0.id == item.id }
         selectedItems = reindexed(selectedItems)

@@ -97,6 +97,7 @@ struct ContentView: View {
                     validationMessage: viewModel.validationMessage,
                     canGenerate: viewModel.canGenerate,
                     onMoveItem: viewModel.moveItem,
+                    onMoveItemToEnd: viewModel.moveItemToEnd,
                     onDeleteItem: viewModel.removeItem,
                     onGenerate: viewModel.startGeneration,
                     onReselect: {

@@ -165,6 +165,22 @@ struct auto_photosTests {
         #expect(viewModel.selectedItems.map(\.selectionIndex) == Array(0..<template.photoCount))
     }
 
+    @Test("선택한 미디어를 순서의 마지막으로 이동할 수 있다")
+    func selectionCanMoveItemToEnd() {
+        let viewModel = makeViewModel()
+        let template = TemplateCatalog.templates[0]
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
+
+        let originalIDs = viewModel.selectedItems.map(\.id)
+        let firstItem = viewModel.selectedItems[0]
+
+        viewModel.moveItemToEnd(firstItem)
+
+        #expect(viewModel.selectedItems.map(\.id) == Array(originalIDs.dropFirst()) + [firstItem.id])
+        #expect(viewModel.selectedItems.map(\.selectionIndex) == Array(0..<template.photoCount))
+    }
+
     @Test("정상 생성 시 preview 상태로 전이한다")
     func generationSuccessTransitionsToPreview() async throws {
         let template = TemplateCatalog.templates[0]
