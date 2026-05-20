@@ -15,6 +15,7 @@ The redesign should make the app feel like a polished iOS memory-video tool: sof
   - `All Photos Flow`
 - Hide the custom template create, edit, and delete entry points from the main experience.
 - Preserve the existing video generation pipeline, template ids, audio configuration, media picker behavior, drag reorder behavior, save behavior, and share behavior.
+- Treat BGM as part of each video template. Do not add a premium BGM feature, advanced BGM catalog, or user-facing BGM selection flow in this redesign.
 - Redesign the visible app screens and split the current large SwiftUI view into screen-level and component-level files.
 - Add Korean and English UI text support. If the device language is Korean, show Korean. For all other languages, show English.
 - Set the user-facing app display name and visible brand text to `Locket`.
@@ -26,6 +27,7 @@ The redesign should make the app feel like a polished iOS memory-video tool: sof
 - Rewriting the video rendering engine.
 - Renaming the Xcode project, target, bundle identifier, or test target unless needed for the user-facing display name.
 - Reintroducing the custom template editor in the new design.
+- Premium or advanced BGM features. Template BGM is always bundled with the selected video template.
 
 ## Design Direction
 
@@ -138,6 +140,7 @@ The preview screen follows the Figma `video download` frame:
   - Preserve existing looping video playback.
 - Controls:
   - Music toggle and Text toggle in a pale pink control container.
+  - The Music toggle only enables or disables the selected template's bundled BGM. It does not open a BGM picker or premium BGM catalog.
   - Disable unavailable toggles but keep the state visually clear.
 - Actions:
   - Primary pink save button.
