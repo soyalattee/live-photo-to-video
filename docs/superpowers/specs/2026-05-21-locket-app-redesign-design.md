@@ -92,8 +92,8 @@ The gallery follows the Figma `main` frame:
   - English: `How do you want to remember today?`
   - Accent the key word visually where practical.
 - Subtitle:
-  - Korean: `원하는 스타일을 골라 하루를 영상으로 남겨보세요.`
-  - English: `Select a style for your daily recap.`
+  - Korean: `원하는 스타일을 골라 기억을 영상으로 남겨보세요.`
+  - English: `Choose a style and turn your memories into a video.`
 - Template cards:
   - Two-column grid.
   - Image or gradient-backed 3:4 cards.
