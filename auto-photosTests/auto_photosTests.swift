@@ -12,6 +12,22 @@ import UIKit
 
 @MainActor
 struct auto_photosTests {
+    @Test("L10n은 한국어면 한국어, 그 외 언어면 영어를 사용한다")
+    func l10nLanguageSelection() {
+        #expect(L10n.language(for: "ko") == .korean)
+        #expect(L10n.language(for: "ko-KR") == .korean)
+        #expect(L10n.language(for: "en") == .english)
+        #expect(L10n.language(for: "ja") == .english)
+        #expect(L10n(language: .korean).templateGallerySubtitle == "원하는 스타일을 골라 기억을 영상으로 남겨보세요.")
+        #expect(L10n(language: .english).templateGallerySubtitle == "Choose a style and turn your memories into a video.")
+    }
+
+    @Test("L10n은 미디어 선택 CTA를 한국어와 영어로 제공한다")
+    func l10nMediaPickerCTA() {
+        #expect(L10n(language: .korean).chooseMedia == "미디어 선택하기")
+        #expect(L10n(language: .english).chooseMedia == "Choose Media")
+    }
+
     @Test("템플릿은 정확한 사진 수와 총 길이를 관리한다")
     func templateValidationAndDuration() {
         let template = TemplateCatalog.templates[0]
