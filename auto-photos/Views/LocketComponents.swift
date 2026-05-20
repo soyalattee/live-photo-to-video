@@ -1,10 +1,10 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct LocketTopBar: View {
     let title: String
     var showsBackButton = false
     var onBack: (() -> Void)?
+    var onSettings: (() -> Void)? = nil
 
     var body: some View {
         HStack {
@@ -36,13 +36,18 @@ struct LocketTopBar: View {
                 Spacer(minLength: 0)
             }
 
-            Button(action: {}) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(LocketTheme.ink)
+            if let onSettings {
+                Button(action: onSettings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(LocketTheme.ink)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear
                     .frame(width: 40, height: 40)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, LocketTheme.pagePadding)
         .padding(.vertical, 12)
@@ -54,20 +59,21 @@ struct LocketBottomActionBar<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             Spacer(minLength: 0)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             content
                 .padding(.horizontal, LocketTheme.pagePadding)
                 .padding(.top, 20)
                 .padding(.bottom, 20)
-                .background(LocketTheme.background.opacity(0.92))
+                .background(LocketTheme.background.opacity(0.92).ignoresSafeArea(edges: .bottom))
                 .overlay(alignment: .top) {
                     Rectangle()
                         .fill(LocketTheme.border)
                         .frame(height: 1)
                 }
         }
-        .ignoresSafeArea(edges: .bottom)
     }
 }
 
@@ -217,23 +223,45 @@ struct LocketToggleCard: View {
         Button(action: { if isEnabled { onToggle(!isOn) } }) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(LocketTheme.accent.opacity(0.12))
+                    .fill(isOn ? LocketTheme.accent : LocketTheme.accent.opacity(0.12))
                     .frame(width: 32, height: 32)
                     .overlay(
-                        Image(systemName: systemImage)
+                        Image(systemName: isOn ? "checkmark" : systemImage)
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(LocketTheme.accent)
+                            .foregroundStyle(isOn ? .white : LocketTheme.accent)
                     )
                 Text(title)
                     .font(LocketTheme.sans(11, weight: .bold))
                     .foregroundStyle(LocketTheme.ink)
                 Spacer(minLength: 0)
+
+                Capsule()
+                    .fill(isOn ? LocketTheme.accent : LocketTheme.roseBorder.opacity(0.42))
+                    .frame(width: 42, height: 24)
+                    .overlay(alignment: isOn ? .trailing : .leading) {
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 18, height: 18)
+                            .padding(3)
+                            .shadow(color: Color.black.opacity(0.10), radius: 3, y: 1)
+                    }
             }
             .padding(13)
-            .background(Color.white.opacity(isEnabled ? 1 : 0.56), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(LocketTheme.roseBorder.opacity(0.30)))
+            .background(
+                (isOn ? LocketTheme.accent.opacity(0.08) : Color.white)
+                    .opacity(isEnabled ? 1 : 0.56),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isOn ? LocketTheme.accent : LocketTheme.roseBorder.opacity(0.30), lineWidth: isOn ? 2 : 1)
+            )
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityValue(isEnabled ? (isOn ? "On" : "Off") : (isOn ? "On, Unavailable" : "Off, Unavailable"))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
