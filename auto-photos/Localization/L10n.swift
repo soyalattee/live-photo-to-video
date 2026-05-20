@@ -31,6 +31,8 @@ struct L10n: Sendable {
     var templateGallerySubtitle: String { language == .korean ? "원하는 스타일을 골라 기억을 영상으로 남겨보세요." : "Choose a style and turn your memories into a video." }
     var chooseMedia: String { language == .korean ? "미디어 선택하기" : "Choose Media" }
     var chooseTemplateFirst: String { language == .korean ? "템플릿을 먼저 선택하세요" : "Choose a template first" }
+    var templateSelectionTitle: String { language == .korean ? "템플릿 선택" : "Template Selection" }
+    var selectionConfirmationTitle: String { language == .korean ? "선택 확인" : "Check Selection" }
     var selectedTemplate: String { language == .korean ? "선택된 템플릿" : "Selected Template" }
     var mediaSequence: String { language == .korean ? "미디어 순서" : "Media Sequence" }
     var reselectMedia: String { language == .korean ? "미디어 다시 선택" : "Choose Media Again" }
@@ -39,7 +41,10 @@ struct L10n: Sendable {
     var musicOn: String { language == .korean ? "BGM 포함" : "Music On" }
     var textOn: String { language == .korean ? "텍스트 포함" : "Text On" }
     var saveToCameraRoll: String { language == .korean ? "사진 앱에 저장" : "Save to Camera Roll" }
+    var saveSuccessMessage: String { language == .korean ? "선택한 옵션으로 사진 앱에 저장했어요." : "Saved to Photos with the selected options." }
+    var saveFailureTitle: String { language == .korean ? "저장 실패" : "Save Failed" }
     var share: String { language == .korean ? "공유하기" : "Share" }
+    var shareFailureTitle: String { language == .korean ? "공유 준비 실패" : "Could Not Prepare Share" }
     var retrySequence: String { language == .korean ? "순서 다시 보기" : "Review Sequence" }
     var cancel: String { language == .korean ? "취소" : "Cancel" }
     var close: String { language == .korean ? "닫기" : "Close" }

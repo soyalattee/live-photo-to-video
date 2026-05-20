@@ -43,6 +43,82 @@ struct auto_photosTests {
         #expect(L10n(language: .english).chooseMedia == "Choose Media")
     }
 
+    @Test("저장과 공유 상태 문구는 L10n 언어에 맞게 표시된다")
+    func previewStatusCopyIsLocalized() {
+        let ko = L10n(language: .korean)
+        let en = L10n(language: .english)
+
+        #expect(ko.saveSuccessMessage == "선택한 옵션으로 사진 앱에 저장했어요.")
+        #expect(en.saveSuccessMessage == "Saved to Photos with the selected options.")
+        #expect(ko.saveFailureTitle == "저장 실패")
+        #expect(en.saveFailureTitle == "Save Failed")
+        #expect(ko.shareFailureTitle == "공유 준비 실패")
+        #expect(en.shareFailureTitle == "Could Not Prepare Share")
+    }
+
+    @Test("AutoPhotosError는 L10n 언어에 맞게 사용자 메시지를 제공한다")
+    func autoPhotosErrorMessagesAreLocalized() {
+        let ko = L10n(language: .korean)
+        let en = L10n(language: .english)
+
+        #expect(AutoPhotosError.exportFailed.userMessage(using: ko) == "영상 생성에 실패했어요. 다시 시도해주세요.")
+        #expect(AutoPhotosError.exportFailed.userMessage(using: en) == "Video generation failed. Please try again.")
+        #expect(AutoPhotosError.savePermissionDenied.userMessage(using: ko) == "사진 앱에 저장하려면 저장 권한이 필요해요.")
+        #expect(AutoPhotosError.savePermissionDenied.userMessage(using: en) == "Allow Photos access to save this video.")
+    }
+
+    @Test("ViewModel은 미리보기 상태와 오류 상태 문구를 L10n 언어로 만든다")
+    func previewAndErrorRouteCopyUsesInjectedL10nLanguage() async throws {
+        let template = TemplateCatalog.templates[0]
+        let generator = MockVideoGenerationService(
+            result: .success(
+                GeneratedVideo(
+                    url: tempURL("preview-localized"),
+                    duration: template.totalDuration,
+                    renderOptions: template.previewRenderOptions
+                )
+            )
+        )
+        let viewModel = AutoPhotosViewModel(
+            photoLibraryService: MockPhotoLibraryService(),
+            videoGenerationService: generator,
+            videoSaveService: MockVideoSaveService(error: AutoPhotosError.saveFailed),
+            templateLibraryService: MockTemplateLibraryService(),
+            l10n: L10n(language: .english)
+        )
+
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
+        viewModel.startGeneration()
+
+        #expect(await eventually {
+            if case .preview = viewModel.generationState {
+                return true
+            }
+
+            return false
+        })
+
+        await viewModel.saveGeneratedVideo()
+
+        #expect(viewModel.alertInfo?.title == "Save Failed")
+        #expect(viewModel.alertInfo?.message == "Saving failed. Check your available storage and Photos access.")
+
+        let failingGenerator = MockVideoGenerationService(result: .failure(AutoPhotosError.exportFailed))
+        let failingViewModel = makeViewModel(generator: failingGenerator, l10n: L10n(language: .english))
+        failingViewModel.selectTemplate(template)
+        failingViewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
+        failingViewModel.startGeneration()
+
+        #expect(await eventually {
+            if case let .error(message) = failingViewModel.generationState {
+                return message == "Video generation failed. Please try again."
+            }
+
+            return false
+        })
+    }
+
     @Test("미디어 종류 이름은 L10n 언어에 맞게 표시된다")
     func mediaKindDisplayNamesAreLocalized() {
         let ko = L10n(language: .korean)
@@ -469,12 +545,13 @@ struct auto_photosTests {
 @MainActor
 private func makeViewModel(generator: MockVideoGenerationService = MockVideoGenerationService(result: .success(
     GeneratedVideo(url: tempURL("default"), duration: TemplateCatalog.templates[0].totalDuration, renderOptions: TemplateCatalog.templates[0].previewRenderOptions)
-))) -> AutoPhotosViewModel {
+)), l10n: L10n = L10n()) -> AutoPhotosViewModel {
     AutoPhotosViewModel(
         photoLibraryService: MockPhotoLibraryService(),
         videoGenerationService: generator,
         videoSaveService: MockVideoSaveService(),
-        templateLibraryService: MockTemplateLibraryService()
+        templateLibraryService: MockTemplateLibraryService(),
+        l10n: l10n
     )
 }
 

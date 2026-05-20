@@ -36,6 +36,7 @@ final class AutoPhotosViewModel: ObservableObject {
     private let videoGenerationService: VideoGenerationService
     private let videoSaveService: VideoSaveService
     private let templateLibraryService: TemplateLibraryService
+    private let l10n: L10n
 
     private var recoveryDestination: ErrorRecoveryDestination = .home
     private var generationTask: Task<Void, Never>?
@@ -45,12 +46,14 @@ final class AutoPhotosViewModel: ObservableObject {
         photoLibraryService: PhotoLibraryService,
         videoGenerationService: VideoGenerationService,
         videoSaveService: VideoSaveService,
-        templateLibraryService: TemplateLibraryService
+        templateLibraryService: TemplateLibraryService,
+        l10n: L10n = L10n()
     ) {
         self.photoLibraryService = photoLibraryService
         self.videoGenerationService = videoGenerationService
         self.videoSaveService = videoSaveService
         self.templateLibraryService = templateLibraryService
+        self.l10n = l10n
         self.templates = Self.mergeTemplates(
             builtInTemplates: TemplateCatalog.templates,
             customTemplates: templateLibraryService.loadCustomTemplates()
@@ -298,7 +301,7 @@ final class AutoPhotosViewModel: ObservableObject {
 
     func handlePickerResults(_ results: [PHPickerResult]) async {
         guard let selectedTemplate else {
-            alertInfo = AlertInfo(title: "템플릿 선택", message: AutoPhotosError.templateMissing.localizedDescription)
+            alertInfo = AlertInfo(title: l10n.templateSelectionTitle, message: userMessage(for: AutoPhotosError.templateMissing))
             return
         }
 
@@ -412,20 +415,20 @@ final class AutoPhotosViewModel: ObservableObject {
     func handleSelectionResolutionFailure(_ error: Error) {
         selectedItems = []
         recoveryDestination = .home
-        generationState = .error(message: error.localizedDescription)
+        generationState = .error(message: userMessage(for: error))
         pickerResetToken = UUID()
     }
 
     func startGeneration() {
         guard let selectedTemplate else {
-            alertInfo = AlertInfo(title: "템플릿 선택", message: AutoPhotosError.templateMissing.localizedDescription)
+            alertInfo = AlertInfo(title: l10n.templateSelectionTitle, message: userMessage(for: AutoPhotosError.templateMissing))
             return
         }
 
         guard canGenerate else {
             alertInfo = AlertInfo(
-                title: "선택 확인",
-                message: validationMessage ?? AutoPhotosError.invalidSelection.localizedDescription
+                title: l10n.selectionConfirmationTitle,
+                message: localizedValidationMessage(for: selectedTemplate) ?? userMessage(for: AutoPhotosError.invalidSelection)
             )
             return
         }
@@ -464,7 +467,7 @@ final class AutoPhotosViewModel: ObservableObject {
                 generationState = selectedItems.isEmpty ? .idle : .selectionReview
             } catch {
                 recoveryDestination = .selectionReview
-                generationState = .error(message: error.localizedDescription)
+                generationState = .error(message: userMessage(for: error))
             }
         }
     }
@@ -509,9 +512,9 @@ final class AutoPhotosViewModel: ObservableObject {
         do {
             let outputVideo = try await video(for: exportOptions)
             try await videoSaveService.saveVideo(at: outputVideo.url)
-            toastMessage = "선택한 옵션으로 사진 앱에 저장했어요."
+            toastMessage = l10n.saveSuccessMessage
         } catch {
-            alertInfo = AlertInfo(title: "저장 실패", message: error.localizedDescription)
+            alertInfo = AlertInfo(title: l10n.saveFailureTitle, message: userMessage(for: error))
         }
     }
 
@@ -527,7 +530,7 @@ final class AutoPhotosViewModel: ObservableObject {
             let outputVideo = try await video(for: exportOptions)
             shareSheetPayload = ShareSheetPayload(url: outputVideo.url)
         } catch {
-            alertInfo = AlertInfo(title: "공유 준비 실패", message: error.localizedDescription)
+            alertInfo = AlertInfo(title: l10n.shareFailureTitle, message: userMessage(for: error))
         }
     }
 
@@ -595,6 +598,43 @@ final class AutoPhotosViewModel: ObservableObject {
 
     private func storeRenderedVideo(_ video: GeneratedVideo) {
         renderedVideos[cacheKey(for: video.renderOptions)] = video
+    }
+
+    private func userMessage(for error: Error) -> String {
+        if let autoPhotosError = error as? AutoPhotosError {
+            return autoPhotosError.userMessage(using: l10n)
+        }
+
+        return error.localizedDescription
+    }
+
+    private func localizedValidationMessage(for template: VideoTemplate) -> String? {
+        guard validationMessage != nil, l10n.language == .english else {
+            return validationMessage
+        }
+
+        let count = selectedItems.count
+        if template.usesSelectionCount {
+            if let minimumPhotoCount = template.minimumPhotoCount, count < minimumPhotoCount {
+                return "Choose at least \(minimumPhotoCount) photos. Currently selected: \(count)."
+            }
+
+            if let maximumPhotoCount = template.maximumSelectionCount, count > maximumPhotoCount {
+                return "Choose up to \(maximumPhotoCount) photos."
+            }
+
+            return nil
+        }
+
+        if count < template.photoCount {
+            return "\(count) of \(template.photoCount) photos selected."
+        }
+
+        if count > template.photoCount {
+            return "Choose up to \(template.photoCount) photos."
+        }
+
+        return nil
     }
 
     private func cacheKey(for options: VideoRenderOptions) -> VideoRenderCacheKey {

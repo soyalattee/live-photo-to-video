@@ -227,6 +227,37 @@ enum AutoPhotosError: LocalizedError, Equatable {
     }
 }
 
+extension AutoPhotosError {
+    func userMessage(using l10n: L10n) -> String {
+        guard l10n.language == .english else {
+            return errorDescription ?? localizedDescription
+        }
+
+        switch self {
+        case .assetIdentifierMissing, .assetNotFound:
+            return "Could not load the selected photo. Please choose it again."
+        case .imageLoadingFailed:
+            return "Something went wrong while loading the photo."
+        case .livePhotoVideoNotFound:
+            return "Could not find the Live Photo video."
+        case .videoAssetNotFound:
+            return "Could not load the selected video."
+        case .exportFailed:
+            return "Video generation failed. Please try again."
+        case .savePermissionDenied:
+            return "Allow Photos access to save this video."
+        case .saveFailed:
+            return "Saving failed. Check your available storage and Photos access."
+        case .invalidSelection:
+            return "Choose the number of photos required for this template."
+        case .templateMissing:
+            return "Choose a template first."
+        case .templateConfigurationInvalid:
+            return "There is a problem with this template configuration. Check the template details."
+        }
+    }
+}
+
 enum UITestScenario: String {
     case home
     case invalidSelection
