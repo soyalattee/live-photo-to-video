@@ -32,7 +32,7 @@ struct ContentView: View {
             screenContent
 
             if viewModel.isResolvingSelection {
-                LoadingOverlayView()
+                LocketLoadingOverlay(l10n: l10n)
             }
         }
         .alert(item: $viewModel.alertInfo) { alert in
@@ -106,8 +106,48 @@ struct ContentView: View {
                     onReset: viewModel.resetToHome
                 )
             }
-        default:
-            legacyShell
+        case let .generating(step):
+            LocketGeneratingScreen(
+                l10n: l10n,
+                step: step,
+                templateName: viewModel.selectedTemplate?.name ?? l10n.selectedTemplate,
+                selectedItemCount: viewModel.selectedItems.count,
+                onCancel: viewModel.cancelGeneration
+            )
+        case let .preview(video):
+            if let selectedTemplate = viewModel.selectedTemplate {
+                VideoPreviewScreen(
+                    l10n: l10n,
+                    template: selectedTemplate,
+                    video: video,
+                    exportOptions: viewModel.exportOptions,
+                    statusMessage: viewModel.toastMessage,
+                    note: viewModel.localizedExportSectionNote(using: l10n),
+                    isSaving: viewModel.isSaving,
+                    isSharing: viewModel.isSharing,
+                    onToggleMusic: viewModel.updateExportMusicOption,
+                    onToggleText: viewModel.updateExportTextOption,
+                    onSave: {
+                        Task {
+                            await viewModel.saveGeneratedVideo()
+                        }
+                    },
+                    onShare: {
+                        Task {
+                            await viewModel.prepareShareVideo()
+                        }
+                    },
+                    onRetry: viewModel.returnToSelectionReview,
+                    onReset: viewModel.resetToHome
+                )
+            }
+        case let .error(message):
+            LocketErrorScreen(
+                l10n: l10n,
+                message: message,
+                onTryAgain: viewModel.recoverFromError,
+                onStartOver: viewModel.resetToHome
+            )
         }
     }
 
@@ -1465,26 +1505,6 @@ private struct AtmosphericBackgroundView: View {
                 .blur(radius: 16)
                 .offset(x: -110, y: -220)
         }
-    }
-}
-
-private struct LoopingVideoPlayerView: View {
-    let url: URL
-
-    @State private var player = AVPlayer()
-
-    var body: some View {
-        VideoPlayer(player: player)
-            .background(Color.black)
-            .onAppear {
-                let item = AVPlayerItem(url: url)
-                player.replaceCurrentItem(with: item)
-                player.play()
-            }
-            .onDisappear {
-                player.pause()
-                player.replaceCurrentItem(with: nil)
-            }
     }
 }
 
