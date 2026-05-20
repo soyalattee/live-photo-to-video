@@ -85,6 +85,26 @@ struct ContentView: View {
                     isPickerPresented = true
                 }
             )
+        case .selectionReview:
+            if let selectedTemplate = viewModel.selectedTemplate {
+                MediaSequenceScreen(
+                    l10n: l10n,
+                    template: selectedTemplate,
+                    cinematicTextCustomization: $viewModel.cinematicTextCustomization,
+                    items: viewModel.selectedItems,
+                    summary: viewModel.localizedSelectionSummary(using: l10n),
+                    estimatedDurationText: viewModel.localizedEstimatedDurationText(using: l10n),
+                    validationMessage: viewModel.validationMessage,
+                    canGenerate: viewModel.canGenerate,
+                    onMoveItem: viewModel.moveItem,
+                    onDeleteItem: viewModel.removeItem,
+                    onGenerate: viewModel.startGeneration,
+                    onReselect: {
+                        isPickerPresented = true
+                    },
+                    onReset: viewModel.resetToHome
+                )
+            }
         default:
             legacyShell
         }
@@ -109,27 +129,8 @@ struct ContentView: View {
     @ViewBuilder
     private var legacyContentSection: some View {
         switch viewModel.generationState {
-        case .idle:
+        case .idle, .selectionReview:
             EmptyView()
-        case .selectionReview:
-            if let selectedTemplate = viewModel.selectedTemplate {
-                SelectionReviewView(
-                    template: selectedTemplate,
-                    cinematicTextCustomization: $viewModel.cinematicTextCustomization,
-                    items: viewModel.selectedItems,
-                    summary: viewModel.selectionSummary,
-                    estimatedDurationText: viewModel.estimatedDurationText,
-                    validationMessage: viewModel.validationMessage,
-                    canGenerate: viewModel.canGenerate,
-                    onMoveItem: viewModel.moveItem,
-                    onDeleteItem: viewModel.removeItem,
-                    onGenerate: viewModel.startGeneration,
-                    onReselect: {
-                        isPickerPresented = true
-                    },
-                    onReset: viewModel.resetToHome
-                )
-            }
         case let .generating(step):
             GeneratingStateView(
                 step: step,
@@ -1496,7 +1497,7 @@ private struct ShareSheetView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-private struct ReorderDropDelegate: DropDelegate {
+struct ReorderDropDelegate: DropDelegate {
     let targetItem: SelectedMediaItem
     @Binding var draggedItem: SelectedMediaItem?
     let onMoveItem: (SelectedMediaItem, SelectedMediaItem) -> Void
