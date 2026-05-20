@@ -38,3 +38,4 @@ Carthage/Build/
 
 # Misc
 .DS_Store
+.superpowers/
