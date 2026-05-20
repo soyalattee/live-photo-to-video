@@ -26,6 +26,12 @@ struct auto_photosTests {
         #expect(TemplateCatalog.templates.map(\.name).contains("All Photos Flow"))
     }
 
+    @Test("홈 경험은 내장 템플릿 네 개만 제공한다")
+    func homeExperienceUsesOnlyBuiltInTemplates() {
+        #expect(TemplateCatalog.templates.count == 4)
+        #expect(TemplateCatalog.templates.allSatisfy { !$0.isCustomTemplate })
+    }
+
     @Test("L10n은 한국어면 한국어, 그 외 언어면 영어를 사용한다")
     func l10nLanguageSelection() {
         #expect(L10n.language(for: "ko") == .korean)
