@@ -16,6 +16,7 @@ struct auto_photosTests {
     func l10nLanguageSelection() {
         #expect(L10n.language(for: "ko") == .korean)
         #expect(L10n.language(for: "ko-KR") == .korean)
+        #expect(L10n.language(for: "ko_KR") == .korean)
         #expect(L10n.language(for: "en") == .english)
         #expect(L10n.language(for: "ja") == .english)
         #expect(L10n(language: .korean).templateGallerySubtitle == "원하는 스타일을 골라 기억을 영상으로 남겨보세요.")
