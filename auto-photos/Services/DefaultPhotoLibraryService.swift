@@ -50,6 +50,7 @@ final class DefaultPhotoLibraryService: PhotoLibraryService {
             assetLocalIdentifier: identifier,
             kind: kind,
             selectionIndex: index,
+            creationDate: asset.creationDate,
             thumbnail: thumbnail
         )
     }

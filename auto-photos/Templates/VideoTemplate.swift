@@ -274,6 +274,95 @@ struct TemplateFrameOverlay: Codable, Equatable, Hashable, Sendable {
     let endTime: TimeInterval?
 }
 
+struct TemplateLockScreenOverlay: Codable, Equatable, Hashable, Sendable {
+    let defaultBottomText: String
+    let dateRevealOffset: TimeInterval
+    let timeRevealOffset: TimeInterval
+    let bottomTextRevealOffset: TimeInterval
+
+    static let dateFontSize: CGFloat = 56
+    static let bottomTextLayerOpacity: Float = 0.9
+
+    enum TextElement: Sendable {
+        case date
+        case time
+        case bottomText
+    }
+
+    struct OpacityTiming: Equatable, Sendable {
+        let startProgress: Double
+        let enterProgress: Double
+        let exitProgress: Double
+        let endProgress: Double
+    }
+
+    func textRevealStartTime(
+        for element: TextElement,
+        clipStart: TimeInterval,
+        isFirstClip: Bool
+    ) -> TimeInterval {
+        guard isFirstClip else {
+            return clipStart
+        }
+
+        switch element {
+        case .date:
+            return clipStart + dateRevealOffset
+        case .time:
+            return clipStart + timeRevealOffset
+        case .bottomText:
+            return clipStart + bottomTextRevealOffset
+        }
+    }
+
+    static func videoLayerFrame(fromTopLeftFrame frame: CGRect, renderHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: frame.minX,
+            y: renderHeight - frame.maxY,
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    static func videoLayerY(fromTopLeftCenterY centerY: CGFloat, renderHeight: CGFloat) -> CGFloat {
+        renderHeight - centerY
+    }
+
+    static func dateTopLeftFrame(renderSize: CGSize) -> CGRect {
+        CGRect(x: 120, y: 160, width: renderSize.width - 240, height: 88)
+    }
+
+    static func timeTopLeftFrame(renderSize: CGSize) -> CGRect {
+        CGRect(x: 72, y: 238, width: renderSize.width - 144, height: 220)
+    }
+
+    static func bottomTextTopLeftFrame(renderSize: CGSize) -> CGRect {
+        CGRect(x: 80, y: 1498, width: renderSize.width - 160, height: 112)
+    }
+
+    static func controlIconSize(forButtonSize buttonSize: CGFloat) -> CGFloat {
+        min(buttonSize * 0.66, buttonSize - 28)
+    }
+
+    static func opacityTiming(
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        totalDuration: TimeInterval,
+        shouldFadeIn: Bool
+    ) -> OpacityTiming {
+        let startProgress = max(0, min(startTime / totalDuration, 1))
+        let endProgress = max(startProgress, min(endTime / totalDuration, 1))
+        let enterProgress = shouldFadeIn ? min((startTime + 0.08) / totalDuration, endProgress) : startProgress
+
+        return OpacityTiming(
+            startProgress: startProgress,
+            enterProgress: enterProgress,
+            exitProgress: endProgress,
+            endProgress: endProgress
+        )
+    }
+}
+
 struct TemplateCinematicTextCustomization: Equatable, Hashable, Sendable {
     var primaryText: String
     var secondaryText: String
@@ -348,6 +437,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
     let clipMediaModes: [TemplateClipMediaMode]?
     let cinematicIntro: TemplateCinematicIntroEffect?
     let frameOverlay: TemplateFrameOverlay?
+    let lockScreenOverlay: TemplateLockScreenOverlay?
     let theme: TemplateTheme
 
     enum CodingKeys: String, CodingKey {
@@ -368,6 +458,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         case clipMediaModes
         case cinematicIntro
         case frameOverlay
+        case lockScreenOverlay
         case theme
     }
 
@@ -389,6 +480,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         clipMediaModes: [TemplateClipMediaMode]? = nil,
         cinematicIntro: TemplateCinematicIntroEffect? = nil,
         frameOverlay: TemplateFrameOverlay? = nil,
+        lockScreenOverlay: TemplateLockScreenOverlay? = nil,
         theme: TemplateTheme
     ) {
         self.id = id
@@ -408,6 +500,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         self.clipMediaModes = clipMediaModes
         self.cinematicIntro = cinematicIntro
         self.frameOverlay = frameOverlay
+        self.lockScreenOverlay = lockScreenOverlay
         self.theme = theme
     }
 
@@ -430,6 +523,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         clipMediaModes = try container.decodeIfPresent([TemplateClipMediaMode].self, forKey: .clipMediaModes)
         cinematicIntro = try container.decodeIfPresent(TemplateCinematicIntroEffect.self, forKey: .cinematicIntro)
         frameOverlay = try container.decodeIfPresent(TemplateFrameOverlay.self, forKey: .frameOverlay)
+        lockScreenOverlay = try container.decodeIfPresent(TemplateLockScreenOverlay.self, forKey: .lockScreenOverlay)
         theme = try container.decode(TemplateTheme.self, forKey: .theme)
     }
 
@@ -450,7 +544,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
     }
 
     var supportsText: Bool {
-        textOverlay != nil || cinematicIntro?.textOverlays.isEmpty == false
+        textOverlay != nil || cinematicIntro?.textOverlays.isEmpty == false || lockScreenOverlay != nil
     }
 
     var previewRenderOptions: VideoRenderOptions {
@@ -461,10 +555,21 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
     }
 
     var supportsCinematicTextCustomization: Bool {
-        defaultCinematicTextCustomization != nil
+        defaultCinematicTextCustomization != nil || lockScreenOverlay != nil
     }
 
     var defaultCinematicTextCustomization: TemplateCinematicTextCustomization? {
+        if let lockScreenOverlay {
+            return TemplateCinematicTextCustomization(
+                primaryText: "",
+                secondaryText: lockScreenOverlay.defaultBottomText,
+                primaryFontName: "AvenirNext-DemiBold",
+                secondaryFontName: "AvenirNext-DemiBold",
+                textColor: ColorToken(red: 1, green: 1, blue: 1),
+                shadowColor: ColorToken(red: 0, green: 0, blue: 0)
+            )
+        }
+
         guard
             let cinematicIntro,
             let primaryOverlay = cinematicIntro.textOverlays.first,

@@ -562,6 +562,7 @@ final class AutoPhotosViewModel: ObservableObject {
                 assetLocalIdentifier: item.assetLocalIdentifier,
                 kind: item.kind,
                 selectionIndex: index,
+                creationDate: item.creationDate,
                 thumbnail: item.thumbnail
             )
         }

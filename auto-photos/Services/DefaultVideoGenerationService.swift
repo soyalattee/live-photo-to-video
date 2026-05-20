@@ -436,9 +436,10 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             customization: request.cinematicTextCustomization
         )
         let frameOverlay = request.template.frameOverlay
+        let lockScreenOverlay = request.renderOptions.includesText ? request.template.lockScreenOverlay : nil
 
         guard
-            shouldRenderBasicText || introEffect != nil || frameOverlay != nil,
+            shouldRenderBasicText || introEffect != nil || frameOverlay != nil || lockScreenOverlay != nil,
             let videoTrack = composition.tracks(withMediaType: .video).first
         else {
             return nil
@@ -478,6 +479,17 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 to: parentLayer,
                 overlay: frameOverlay,
                 totalDuration: totalDuration
+            )
+        }
+
+        if let lockScreenOverlay {
+            addLockScreenLogOverlay(
+                to: parentLayer,
+                overlay: lockScreenOverlay,
+                items: request.items,
+                clipDurations: request.template.resolvedClipDurations(for: request.items.count),
+                totalDuration: totalDuration,
+                customization: request.cinematicTextCustomization
             )
         }
 
@@ -583,6 +595,250 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             endProgress: endProgress
         )
         textLayer.add(opacityAnimation, forKey: "templateTextOpacity")
+    }
+
+    private func addLockScreenLogOverlay(
+        to parentLayer: CALayer,
+        overlay: TemplateLockScreenOverlay,
+        items: [SelectedMediaItem],
+        clipDurations: [TimeInterval],
+        totalDuration: TimeInterval,
+        customization: TemplateCinematicTextCustomization?
+    ) {
+        let sortedItems = items.sorted { $0.selectionIndex < $1.selectionIndex }
+        let bottomText = normalizedText(
+            customization?.secondaryText,
+            fallback: overlay.defaultBottomText
+        )
+        var clipStart: TimeInterval = 0
+
+        addLockScreenControl(
+            to: parentLayer,
+            systemImageName: "camera.fill",
+            fallbackSystemImageName: "camera",
+            center: CGPoint(
+                x: renderSize.width * 0.18,
+                y: TemplateLockScreenOverlay.videoLayerY(
+                    fromTopLeftCenterY: renderSize.height * 0.915,
+                    renderHeight: renderSize.height
+                )
+            )
+        )
+        addLockScreenControl(
+            to: parentLayer,
+            systemImageName: "flashlight.on.fill",
+            fallbackSystemImageName: "flashlight.off.fill",
+            center: CGPoint(
+                x: renderSize.width * 0.82,
+                y: TemplateLockScreenOverlay.videoLayerY(
+                    fromTopLeftCenterY: renderSize.height * 0.915,
+                    renderHeight: renderSize.height
+                )
+            )
+        )
+
+        for (clipIndex, pair) in zip(sortedItems, clipDurations).enumerated() {
+            let (item, clipDuration) = pair
+            let clipEnd = min(clipStart + clipDuration, totalDuration)
+            let date = item.creationDate ?? Date()
+            let isFirstClip = clipIndex == 0
+            addLockScreenText(
+                to: parentLayer,
+                text: formattedLockScreenDate(from: date),
+                font: .systemFont(ofSize: TemplateLockScreenOverlay.dateFontSize, weight: .semibold),
+                frame: TemplateLockScreenOverlay.videoLayerFrame(
+                    fromTopLeftFrame: TemplateLockScreenOverlay.dateTopLeftFrame(renderSize: renderSize),
+                    renderHeight: renderSize.height
+                ),
+                startTime: overlay.textRevealStartTime(for: .date, clipStart: clipStart, isFirstClip: isFirstClip),
+                endTime: clipEnd,
+                totalDuration: totalDuration,
+                shouldFadeIn: isFirstClip
+            )
+            addLockScreenText(
+                to: parentLayer,
+                text: formattedLockScreenTime(from: date),
+                font: .systemFont(ofSize: 190, weight: .bold),
+                frame: TemplateLockScreenOverlay.videoLayerFrame(
+                    fromTopLeftFrame: TemplateLockScreenOverlay.timeTopLeftFrame(renderSize: renderSize),
+                    renderHeight: renderSize.height
+                ),
+                startTime: overlay.textRevealStartTime(for: .time, clipStart: clipStart, isFirstClip: isFirstClip),
+                endTime: clipEnd,
+                totalDuration: totalDuration,
+                shouldFadeIn: isFirstClip
+            )
+            addLockScreenText(
+                to: parentLayer,
+                text: bottomText,
+                font: .systemFont(ofSize: 50, weight: .semibold),
+                frame: TemplateLockScreenOverlay.videoLayerFrame(
+                    fromTopLeftFrame: TemplateLockScreenOverlay.bottomTextTopLeftFrame(renderSize: renderSize),
+                    renderHeight: renderSize.height
+                ),
+                startTime: overlay.textRevealStartTime(for: .bottomText, clipStart: clipStart, isFirstClip: isFirstClip),
+                endTime: clipEnd,
+                totalDuration: totalDuration,
+                shouldFadeIn: isFirstClip,
+                visibleOpacity: TemplateLockScreenOverlay.bottomTextLayerOpacity
+            )
+
+            clipStart = clipEnd
+        }
+    }
+
+    private func addLockScreenText(
+        to parentLayer: CALayer,
+        text: String,
+        font: UIFont,
+        frame: CGRect,
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        totalDuration: TimeInterval,
+        shouldFadeIn: Bool,
+        visibleOpacity: Float = 1
+    ) {
+        guard endTime > startTime else {
+            return
+        }
+
+        let shadow = NSShadow()
+        shadow.shadowColor = UIColor.black.withAlphaComponent(0.16)
+        shadow.shadowOffset = CGSize(width: 0, height: 2)
+        shadow.shadowBlurRadius = 6
+
+        let textLayer = CALayer()
+        textLayer.frame = frame
+        textLayer.contentsGravity = .resizeAspect
+        textLayer.contentsScale = UIScreen.main.scale
+        textLayer.opacity = 0
+        textLayer.contents = makeAdvancedTextImage(
+            text: text,
+            font: font,
+            color: .white,
+            size: frame.size,
+            shadow: shadow,
+            glow: nil,
+            stroke: nil,
+            fillExpansion: nil,
+            lineHeightMultiple: 1,
+            referenceText: text
+        )?.cgImage
+        parentLayer.addSublayer(textLayer)
+        addLockScreenOpacityAnimation(
+            to: textLayer,
+            startTime: startTime,
+            endTime: endTime,
+            totalDuration: totalDuration,
+            shouldFadeIn: shouldFadeIn,
+            visibleOpacity: visibleOpacity
+        )
+    }
+
+    private func addLockScreenControl(
+        to parentLayer: CALayer,
+        systemImageName: String,
+        fallbackSystemImageName: String,
+        center: CGPoint
+    ) {
+        let controlSize: CGFloat = 132
+        let buttonLayer = CALayer()
+        buttonLayer.frame = CGRect(
+            x: center.x - (controlSize / 2),
+            y: center.y - (controlSize / 2),
+            width: controlSize,
+            height: controlSize
+        )
+        buttonLayer.backgroundColor = UIColor.black.withAlphaComponent(0.36).cgColor
+        buttonLayer.cornerRadius = controlSize / 2
+        buttonLayer.opacity = 1
+
+        let imageName = UIImage(systemName: systemImageName) == nil ? fallbackSystemImageName : systemImageName
+        if let controlImage = makeLockScreenControlImage(systemImageName: imageName), let cgImage = controlImage.cgImage {
+            let iconSize = TemplateLockScreenOverlay.controlIconSize(forButtonSize: controlSize)
+            let iconLayer = CALayer()
+            iconLayer.frame = CGRect(
+                x: (controlSize - iconSize) / 2,
+                y: (controlSize - iconSize) / 2,
+                width: iconSize,
+                height: iconSize
+            )
+            iconLayer.contents = cgImage
+            iconLayer.contentsGravity = .resizeAspect
+            iconLayer.contentsScale = UIScreen.main.scale
+            buttonLayer.addSublayer(iconLayer)
+        }
+
+        parentLayer.addSublayer(buttonLayer)
+    }
+
+    private func addLockScreenOpacityAnimation(
+        to layer: CALayer,
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        totalDuration: TimeInterval,
+        shouldFadeIn: Bool,
+        visibleOpacity: Float = 1
+    ) {
+        let timing = TemplateLockScreenOverlay.opacityTiming(
+            startTime: startTime,
+            endTime: endTime,
+            totalDuration: totalDuration,
+            shouldFadeIn: shouldFadeIn
+        )
+        let opacityAnimation = makeOverlayOpacityAnimation(
+            totalDuration: totalDuration,
+            startProgress: timing.startProgress,
+            enterProgress: timing.enterProgress,
+            exitProgress: timing.exitProgress,
+            endProgress: timing.endProgress
+        )
+        opacityAnimation.values = [0, 0, visibleOpacity, visibleOpacity, 0, 0]
+        layer.add(opacityAnimation, forKey: "lockScreenOpacity")
+    }
+
+    private func makeLockScreenControlImage(systemImageName: String) -> UIImage? {
+        let size = CGSize(width: 128, height: 128)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = UIScreen.main.scale
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            guard let symbol = UIImage(
+                systemName: systemImageName,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 88, weight: .semibold)
+            ) else {
+                return
+            }
+
+            let image = symbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+            let imageSize = image.size
+            let drawRect = CGRect(
+                x: (size.width - imageSize.width) / 2,
+                y: (size.height - imageSize.height) / 2,
+                width: imageSize.width,
+                height: imageSize.height
+            )
+            image.draw(in: drawRect)
+        }
+    }
+
+    private func formattedLockScreenDate(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일 EEEE"
+        return formatter.string(from: date)
+    }
+
+    private func formattedLockScreenTime(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "H:mm"
+        return formatter.string(from: date)
+    }
+
+    private func normalizedText(_ text: String?, fallback: String) -> String {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? fallback : trimmed
     }
 
     private func addCinematicIntroLayers(

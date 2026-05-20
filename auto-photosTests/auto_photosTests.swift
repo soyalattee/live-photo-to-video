@@ -105,7 +105,8 @@ struct auto_photosTests {
         let viewModel = AutoPhotosViewModel(
             photoLibraryService: MockPhotoLibraryService(),
             videoGenerationService: generator,
-            videoSaveService: saver
+            videoSaveService: saver,
+            templateLibraryService: MockTemplateLibraryService()
         )
 
         viewModel.selectTemplate(template)
@@ -142,7 +143,14 @@ struct auto_photosTests {
             photoCount: 10,
             clipDurations: Array(repeating: 2.0, count: 10),
             audioTrack: nil,
-            textOverlay: TemplateTextOverlay(text: "miniLog", startTime: 1, endTime: 8),
+            textOverlay: TemplateTextOverlay(
+                text: "miniLog",
+                startTime: 1,
+                endTime: 8,
+                fontName: "AvenirNext-Bold",
+                fontSize: 74,
+                position: TemplateTextPosition(x: 0.5, y: 0.18)
+            ),
             theme: TemplateCatalog.templates[0].theme
         )
         let generator = MockVideoGenerationService(
@@ -175,6 +183,126 @@ struct auto_photosTests {
         #expect(generator.generatedRequests.count == 2)
         #expect(generator.generatedRequests.last?.renderOptions.includesText == false)
     }
+
+    @Test("잠금화면 로그 템플릿은 모든 컷을 첫 컷 1.5초 이후 1초씩 사용한다")
+    func lockScreenLogTemplateUsesUnlimitedSelectionWithRequestedDurations() {
+        let template = VideoTemplate.lockScreenLog
+
+        #expect(template.usesSelectionCount)
+        #expect(template.photoCount == 0)
+        #expect(template.resolvedClipDurations(for: 1) == [1.5])
+        #expect(template.resolvedClipDurations(for: 4) == [1.5, 1.0, 1.0, 1.0])
+        #expect(template.totalDuration(for: 4) == 4.5)
+        #expect(template.lockScreenOverlay != nil)
+        #expect(template.supportsCinematicTextCustomization)
+        #expect(template.audioTrack == .bundled(title: "Tak Before Dawn", resourceName: "Tak Before Dawn", fileExtension: "wav"))
+    }
+
+    @Test("잠금화면 로그 템플릿은 기본 카탈로그에 포함된다")
+    func lockScreenLogTemplateIsInCatalog() {
+        #expect(TemplateCatalog.templates.contains { $0.id == VideoTemplate.lockScreenLog.id })
+    }
+
+    @Test("잠금화면 오버레이는 첫 컷에만 지연 등장하고 이후 컷은 즉시 교체된다")
+    func lockScreenOverlayRevealTimingOnlyDelaysFirstClip() throws {
+        let overlay = try #require(VideoTemplate.lockScreenLog.lockScreenOverlay)
+
+        #expect(overlay.textRevealStartTime(for: .date, clipStart: 0, isFirstClip: true) == 0.1)
+        #expect(overlay.textRevealStartTime(for: .time, clipStart: 0, isFirstClip: true) == 0.2)
+        #expect(overlay.textRevealStartTime(for: .bottomText, clipStart: 0, isFirstClip: true) == 0.5)
+        #expect(overlay.textRevealStartTime(for: .date, clipStart: 1.5, isFirstClip: false) == 1.5)
+        #expect(overlay.textRevealStartTime(for: .time, clipStart: 1.5, isFirstClip: false) == 1.5)
+        #expect(overlay.textRevealStartTime(for: .bottomText, clipStart: 1.5, isFirstClip: false) == 1.5)
+    }
+
+    @Test("잠금화면 오버레이 좌표는 영상 합성 좌표계에 맞게 세로 반전된다")
+    func lockScreenOverlayConvertsTopLeftLayoutToVideoLayerCoordinates() {
+        let topLeftFrame = CGRect(x: 80, y: 1518, width: 920, height: 74)
+        let converted = TemplateLockScreenOverlay.videoLayerFrame(
+            fromTopLeftFrame: topLeftFrame,
+            renderHeight: 1920
+        )
+
+        #expect(converted == CGRect(x: 80, y: 328, width: 920, height: 74))
+        #expect(TemplateLockScreenOverlay.videoLayerY(fromTopLeftCenterY: 1756.8, renderHeight: 1920) == 163.2)
+    }
+
+    @Test("잠금화면 날짜와 하단 문구는 폰트가 잘리지 않도록 여유 높이를 사용한다")
+    func lockScreenOverlayTextFramesHaveVerticalPadding() {
+        let renderSize = CGSize(width: 1080, height: 1920)
+
+        #expect(TemplateLockScreenOverlay.dateTopLeftFrame(renderSize: renderSize).height >= 82)
+        #expect(TemplateLockScreenOverlay.bottomTextTopLeftFrame(renderSize: renderSize).height >= 104)
+    }
+
+    @Test("잠금화면 날짜 폰트와 하단 문구 opacity는 템플릿 설정값을 따른다")
+    func lockScreenOverlayTypographySettings() {
+        #expect(TemplateLockScreenOverlay.dateFontSize == 56)
+        #expect(TemplateLockScreenOverlay.bottomTextLayerOpacity == 0.9)
+    }
+
+    @Test("잠금화면 텍스트는 컷 끝에서 흐려지지 않고 즉시 교체된다")
+    func lockScreenOverlayOpacityDoesNotFadeOutBeforeCutEnd() {
+        let timing = TemplateLockScreenOverlay.opacityTiming(
+            startTime: 1.5,
+            endTime: 2.5,
+            totalDuration: 4.5,
+            shouldFadeIn: false
+        )
+
+        #expect(timing.enterProgress == timing.startProgress)
+        #expect(timing.exitProgress == timing.endProgress)
+    }
+
+    @Test("선택 순서를 바꿔도 리소스 생성일을 보존한다")
+    func selectionReindexingPreservesCreationDate() {
+        let viewModel = makeViewModel()
+        let template = VideoTemplate.lockScreenLog
+        let firstDate = makeDate(year: 2026, month: 5, day: 13, hour: 18, minute: 3)
+        let secondDate = makeDate(year: 2026, month: 5, day: 13, hour: 21, minute: 10)
+        let thirdDate = makeDate(year: 2026, month: 5, day: 14, hour: 12, minute: 10)
+
+        viewModel.selectTemplate(template)
+        viewModel.applyResolvedSelection([
+            makeItem(index: 0, kind: .photo, creationDate: firstDate),
+            makeItem(index: 1, kind: .livePhoto, creationDate: secondDate),
+            makeItem(index: 2, kind: .video, creationDate: thirdDate),
+        ])
+
+        viewModel.moveItem(viewModel.selectedItems[0], before: viewModel.selectedItems[2])
+
+        #expect(viewModel.selectedItems.map(\.creationDate) == [secondDate, firstDate, thirdDate])
+        #expect(viewModel.selectedItems.map(\.selectionIndex) == [0, 1, 2])
+    }
+
+    @Test("잠금화면 로그 템플릿은 사용자 하단 문구를 생성 요청에 전달한다")
+    func lockScreenLogBottomTextCustomizationTravelsWithGenerationRequest() async {
+        let template = VideoTemplate.lockScreenLog
+        let generator = MockVideoGenerationService(
+            result: .dynamic { request in
+                GeneratedVideo(
+                    url: tempURL("lock-screen-log"),
+                    duration: request.template.totalDuration(for: request.items.count),
+                    renderOptions: request.renderOptions
+                )
+            }
+        )
+        let viewModel = makeViewModel(generator: generator)
+
+        viewModel.selectTemplate(template)
+        viewModel.cinematicTextCustomization?.secondaryText = "여름맞이 ootd 브이로그"
+        viewModel.applyResolvedSelection(makeSelection(count: 3))
+        viewModel.startGeneration()
+
+        #expect(await eventually {
+            if case .preview = viewModel.generationState {
+                return true
+            }
+
+            return false
+        })
+        #expect(generator.generatedRequests.first?.cinematicTextCustomization?.secondaryText == "여름맞이 ootd 브이로그")
+    }
 }
 
 @MainActor
@@ -184,7 +312,8 @@ private func makeViewModel(generator: MockVideoGenerationService = MockVideoGene
     AutoPhotosViewModel(
         photoLibraryService: MockPhotoLibraryService(),
         videoGenerationService: generator,
-        videoSaveService: MockVideoSaveService()
+        videoSaveService: MockVideoSaveService(),
+        templateLibraryService: MockTemplateLibraryService()
     )
 }
 
@@ -247,19 +376,46 @@ private struct MockVideoSaveService: VideoSaveService {
     }
 }
 
+private struct MockTemplateLibraryService: TemplateLibraryService {
+    func loadCustomTemplates() -> [VideoTemplate] {
+        []
+    }
+
+    func saveCustomTemplate(_ template: VideoTemplate) throws {}
+
+    func deleteCustomTemplate(id: String) throws {}
+
+    func importAudioTrack(from sourceURL: URL) throws -> TemplateAudioTrack {
+        .imported(title: sourceURL.lastPathComponent, resourceName: "mock", fileExtension: "m4a")
+    }
+}
+
 private func makeSelection(count: Int) -> [SelectedMediaItem] {
     (0..<count).map { index in
         makeItem(index: index, kind: index.isMultiple(of: 2) ? .photo : .livePhoto)
     }
 }
 
-private func makeItem(index: Int, kind: MediaKind) -> SelectedMediaItem {
+private func makeItem(index: Int, kind: MediaKind, creationDate: Date? = nil) -> SelectedMediaItem {
     SelectedMediaItem(
         assetLocalIdentifier: "asset-\(index)",
         kind: kind,
         selectionIndex: index,
+        creationDate: creationDate,
         thumbnail: solidImage()
     )
+}
+
+private func makeDate(year: Int, month: Int, day: Int, hour: Int, minute: Int) -> Date {
+    var components = DateComponents()
+    components.calendar = Calendar(identifier: .gregorian)
+    components.timeZone = TimeZone(secondsFromGMT: 0)
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    return components.date!
 }
 
 private func solidImage() -> UIImage {

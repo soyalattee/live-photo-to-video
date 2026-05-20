@@ -367,7 +367,11 @@ private struct SelectionReviewView: View {
             }
 
             if let customizationBinding = resolvedCinematicTextCustomizationBinding {
-                CinematicIntroTextCustomizationCardView(customization: customizationBinding)
+                if template.lockScreenOverlay != nil {
+                    LockScreenLogTextCustomizationCardView(customization: customizationBinding)
+                } else {
+                    CinematicIntroTextCustomizationCardView(customization: customizationBinding)
+                }
             }
 
             LazyVGrid(columns: gridColumns, spacing: 16) {
@@ -500,6 +504,30 @@ private struct CinematicIntroTextCustomizationCardView: View {
                         .padding(16)
                         .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
+            }
+        }
+    }
+}
+
+private struct LockScreenLogTextCustomizationCardView: View {
+    @Binding var customization: TemplateCinematicTextCustomization
+
+    var body: some View {
+        GlassPanelView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("하단 문구")
+                    .font(.custom("AvenirNextCondensed-DemiBold", size: 24))
+                    .foregroundStyle(BrandPalette.ink)
+
+                Text("날짜와 시간은 리소스 촬영 정보로 자동 업데이트돼요.")
+                    .font(.custom("AvenirNext-Medium", size: 13))
+                    .foregroundStyle(BrandPalette.inkSoft)
+
+                TextField("예: 여름맞이 ootd 브이로그", text: $customization.secondaryText, axis: .vertical)
+                    .font(.custom("AvenirNext-Medium", size: 15))
+                    .lineLimit(1...3)
+                    .padding(16)
+                    .background(BrandPalette.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
     }

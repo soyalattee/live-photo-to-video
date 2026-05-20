@@ -31,6 +31,7 @@ struct SelectedMediaItem: Identifiable {
     let assetLocalIdentifier: String
     let kind: MediaKind
     var selectionIndex: Int
+    let creationDate: Date?
     let thumbnail: UIImage
 
     init(
@@ -38,12 +39,14 @@ struct SelectedMediaItem: Identifiable {
         assetLocalIdentifier: String,
         kind: MediaKind,
         selectionIndex: Int,
+        creationDate: Date? = nil,
         thumbnail: UIImage
     ) {
         self.id = id
         self.assetLocalIdentifier = assetLocalIdentifier
         self.kind = kind
         self.selectionIndex = selectionIndex
+        self.creationDate = creationDate
         self.thumbnail = thumbnail
     }
 }
