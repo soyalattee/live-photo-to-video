@@ -20,6 +20,12 @@ struct auto_photosTests {
         #expect(LocketTheme.hex.surface == 0xFFF0F1)
     }
 
+    @Test("Locket 카드 메타데이터는 기존 템플릿 이름을 유지한다")
+    func locketTemplateCardsKeepCurrentTemplateNames() {
+        #expect(TemplateCatalog.templates.map(\.name).contains("Lock Screen Log"))
+        #expect(TemplateCatalog.templates.map(\.name).contains("All Photos Flow"))
+    }
+
     @Test("L10n은 한국어면 한국어, 그 외 언어면 영어를 사용한다")
     func l10nLanguageSelection() {
         #expect(L10n.language(for: "ko") == .korean)
