@@ -12,6 +12,14 @@ import UIKit
 
 @MainActor
 struct auto_photosTests {
+    @Test("Locket 테마 토큰은 Figma 기준 색을 사용한다")
+    func locketThemeUsesFigmaColors() {
+        #expect(LocketTheme.hex.background == 0xFFF8F7)
+        #expect(LocketTheme.hex.accent == 0xFF7597)
+        #expect(LocketTheme.hex.ink == 0x23191A)
+        #expect(LocketTheme.hex.surface == 0xFFF0F1)
+    }
+
     @Test("L10n은 한국어면 한국어, 그 외 언어면 영어를 사용한다")
     func l10nLanguageSelection() {
         #expect(L10n.language(for: "ko") == .korean)
