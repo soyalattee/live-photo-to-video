@@ -4,7 +4,7 @@
 
 Redesign the app around the Figma `app-design` reference and rename the user-facing product from `auto-photos` to `Locket`.
 
-The redesign should make the app feel like a polished iOS memory-video tool: soft off-white surfaces, photo-led template cards, clear fixed actions, and a simple flow from template selection to media ordering to export.
+The redesign should make the app feel like a polished iOS memory-video tool: soft off-white surfaces, media-led template cards, clear fixed actions, and a simple flow from template selection to media ordering to export.
 
 ## Scope
 
@@ -14,7 +14,7 @@ The redesign should make the app feel like a polished iOS memory-video tool: sof
   - `Life Fraems`
   - `All Photos Flow`
 - Hide the custom template create, edit, and delete entry points from the main experience.
-- Preserve the existing video generation pipeline, template ids, audio configuration, photo picker behavior, drag reorder behavior, save behavior, and share behavior.
+- Preserve the existing video generation pipeline, template ids, audio configuration, media picker behavior, drag reorder behavior, save behavior, and share behavior.
 - Redesign the visible app screens and split the current large SwiftUI view into screen-level and component-level files.
 - Add Korean and English UI text support. If the device language is Korean, show Korean. For all other languages, show English.
 - Set the user-facing app display name and visible brand text to `Locket`.
@@ -49,7 +49,7 @@ Split the current `ContentView` UI into smaller units:
 - `LocketAppView`
   - Owns top-level routing between app states.
   - Connects to `AutoPhotosViewModel`.
-  - Presents alerts, photo picker, share sheet, and any global overlays.
+  - Presents alerts, media picker, share sheet, and any global overlays.
 - `TemplateGalleryScreen`
   - Replaces the current home state.
   - Shows the Locket top bar, headline, two-column template card grid, and fixed bottom action.
@@ -102,8 +102,8 @@ The gallery follows the Figma `main` frame:
 - Bottom CTA:
   - Fixed to the bottom safe area.
   - Disabled until a template is selected or picker can open.
-  - Korean: `사진 선택하기`
-  - English: `Choose Photos`
+  - Korean: `미디어 선택하기`
+  - English: `Choose Media`
 
 ### Media Sequence
 
@@ -123,7 +123,7 @@ The sequence screen follows the Figma `array` frame:
   - Each row shows index, thumbnail, media type, optional duration, and drag handle.
   - Keep long-press drag reorder and delete behavior.
 - Actions:
-  - A dashed reselect row or secondary button for selecting photos again.
+  - A dashed reselect row or secondary button for selecting media again.
   - A primary bottom CTA for video generation.
   - Validation text appears above the CTA when generation is blocked.
 
