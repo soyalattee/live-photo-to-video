@@ -15,6 +15,7 @@ struct ContentView: View {
     @StateObject private var viewModel: AutoPhotosViewModel
     @State private var isPickerPresented = false
     @State private var templateEditorContext: TemplateEditorContext?
+    private let l10n = L10n()
 
     @MainActor
     init() {
@@ -28,17 +29,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            AtmosphericBackgroundView()
-                .ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 26) {
-                    headerSection
-                    contentSection
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 24)
-            }
+            contentSection
 
             if viewModel.isResolvingSelection {
                 LoadingOverlayView()
@@ -48,7 +39,7 @@ struct ContentView: View {
             Alert(
                 title: Text(alert.title),
                 message: Text(alert.message),
-                dismissButton: .default(Text("확인"))
+                dismissButton: .default(Text(l10n.language == .korean ? "확인" : "OK"))
             )
         }
         .sheet(isPresented: $isPickerPresented) {
@@ -84,24 +75,12 @@ struct ContentView: View {
     private var contentSection: some View {
         switch viewModel.generationState {
         case .idle:
-            HomeStateView(
+            TemplateGalleryScreen(
+                l10n: l10n,
                 templates: viewModel.templates,
                 selectedTemplate: viewModel.selectedTemplate,
                 canOpenPicker: viewModel.canOpenPicker,
                 onSelectTemplate: viewModel.selectTemplate,
-                onCreateTemplate: {
-                    templateEditorContext = TemplateEditorContext(draft: TemplateDraft())
-                },
-                onEditTemplate: { template in
-                    templateEditorContext = TemplateEditorContext(draft: TemplateDraft(template: template))
-                },
-                onDeleteTemplate: { template in
-                    do {
-                        try viewModel.deleteCustomTemplate(template)
-                    } catch {
-                        viewModel.alertInfo = AlertInfo(title: "템플릿 삭제 실패", message: error.localizedDescription)
-                    }
-                },
                 onOpenPicker: {
                     isPickerPresented = true
                 }
