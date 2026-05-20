@@ -12,12 +12,7 @@ enum TemplateCatalog {
         .restaurantRecommendation,
         .lockScreenLog,
         .lifeInFraems,
-        .rhythmFlex,
         .allPhotosFlow,
-        .allPhotosSoftPulse,
-        .allPhotosSlowBloom,
-        .miniLogPulse,
-        .miniLogSmooth,
     ]
 }
 

@@ -17,7 +17,7 @@ extension VideoTemplate {
         clipDurations: [],
         usesSelectionCount: true,
         repeatingClipDuration: 1.1,
-        audioTrack: nil,
+        audioTrack: .bundled(title: "Saltair Drive", resourceName: "Saltair Drive", fileExtension: "wav"),
         textOverlay: nil,
         theme: TemplateTheme(
             accent: ColorToken(red: 0.27, green: 0.24, blue: 0.22),

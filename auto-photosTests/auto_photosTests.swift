@@ -203,6 +203,25 @@ struct auto_photosTests {
         #expect(TemplateCatalog.templates.contains { $0.id == VideoTemplate.lockScreenLog.id })
     }
 
+    @Test("기본 카탈로그는 유지할 네 가지 템플릿만 노출한다")
+    func templateCatalogOnlyShowsApprovedTemplates() {
+        #expect(TemplateCatalog.templates.map(\.id) == [
+            "restaurant-recommendation",
+            "lock-screen-log",
+            "life-in-fraems",
+            "all-photos-flow",
+        ])
+    }
+
+    @Test("All Photos Flow는 Saltair Drive 번들 오디오를 사용한다")
+    func allPhotosFlowUsesSaltairDriveAudio() {
+        #expect(VideoTemplate.allPhotosFlow.audioTrack == .bundled(
+            title: "Saltair Drive",
+            resourceName: "Saltair Drive",
+            fileExtension: "wav"
+        ))
+    }
+
     @Test("잠금화면 오버레이는 첫 컷에만 지연 등장하고 이후 컷은 즉시 교체된다")
     func lockScreenOverlayRevealTimingOnlyDelaysFirstClip() throws {
         let overlay = try #require(VideoTemplate.lockScreenLog.lockScreenOverlay)
