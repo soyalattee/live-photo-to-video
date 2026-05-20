@@ -125,7 +125,8 @@ struct LocketTemplateCard: View {
                     Text(template.tagline)
                         .font(LocketTheme.sans(11))
                         .foregroundStyle(.white.opacity(0.82))
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.88)
                 }
                 .padding(16)
             }

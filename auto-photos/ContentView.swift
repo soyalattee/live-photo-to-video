@@ -29,7 +29,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            contentSection
+            screenContent
 
             if viewModel.isResolvingSelection {
                 LoadingOverlayView()
@@ -72,7 +72,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var contentSection: some View {
+    private var screenContent: some View {
         switch viewModel.generationState {
         case .idle:
             TemplateGalleryScreen(
@@ -85,6 +85,32 @@ struct ContentView: View {
                     isPickerPresented = true
                 }
             )
+        default:
+            legacyShell
+        }
+    }
+
+    private var legacyShell: some View {
+        ZStack {
+            AtmosphericBackgroundView()
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 26) {
+                    headerSection
+                    legacyContentSection
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var legacyContentSection: some View {
+        switch viewModel.generationState {
+        case .idle:
+            EmptyView()
         case .selectionReview:
             if let selectedTemplate = viewModel.selectedTemplate {
                 SelectionReviewView(
