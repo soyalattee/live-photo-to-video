@@ -57,4 +57,21 @@ struct L10n: Sendable {
     var startOver: String { language == .korean ? "처음으로" : "Start Over" }
     var templateBGMUnavailable: String { language == .korean ? "템플릿 BGM 파일을 다시 연결하면 BGM 옵션이 자동으로 활성화돼요." : "Reconnect the template BGM file to enable the music option." }
     var textUnavailable: String { language == .korean ? "이 템플릿은 텍스트 오버레이 없이 출력돼요." : "This template exports without text overlays." }
+
+    func templateTagline(for template: VideoTemplate) -> String {
+        switch (language, template.id) {
+        case (.english, "restaurant-recommendation"):
+            return "3.5s opener, then 2.0s beats"
+        case (.english, "lock-screen-log"):
+            return "Lock screen date story"
+        case (.english, "life-in-fraems"):
+            return "24-cut cinematic opener"
+        case (.english, "all-photos-flow"):
+            return "Every media item in a 1.1s flow"
+        case (.korean, "all-photos-flow"):
+            return "선택한 모든 미디어를 1.1초씩 이어붙이기"
+        default:
+            return template.tagline
+        }
+    }
 }

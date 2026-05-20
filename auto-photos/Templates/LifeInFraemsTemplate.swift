@@ -10,7 +10,7 @@ import Foundation
 extension VideoTemplate {
     static let lifeInFraems = VideoTemplate(
         id: "life-in-fraems",
-        name: "Life in Fraems",
+        name: "Life Fraems",
         tagline: "24컷 시네마 오프닝 템플릿",
         description: "24장의 사진과 Live Photo를 영화 오프닝처럼 펼쳐내는 세로형 템플릿",
         photoCount: 24,

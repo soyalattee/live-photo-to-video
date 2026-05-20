@@ -23,13 +23,26 @@ struct auto_photosTests {
     @Test("Locket 카드 메타데이터는 기존 템플릿 이름을 유지한다")
     func locketTemplateCardsKeepCurrentTemplateNames() {
         #expect(TemplateCatalog.templates.map(\.name).contains("Lock Screen Log"))
+        #expect(TemplateCatalog.templates.map(\.name).contains("Life Fraems"))
         #expect(TemplateCatalog.templates.map(\.name).contains("All Photos Flow"))
+        #expect(!TemplateCatalog.templates.map(\.name).contains("Life in Fraems"))
     }
 
     @Test("홈 경험은 내장 템플릿 네 개만 제공한다")
     func homeExperienceUsesOnlyBuiltInTemplates() {
         #expect(TemplateCatalog.templates.count == 4)
         #expect(TemplateCatalog.templates.allSatisfy { !$0.isCustomTemplate })
+    }
+
+    @Test("ViewModel 홈 템플릿은 저장된 커스텀 템플릿이 있어도 내장 네 개만 노출한다")
+    func viewModelHomeTemplatesIgnoreCustomTemplates() {
+        let viewModel = makeViewModel(
+            templateLibraryService: MockTemplateLibraryService(customTemplates: [makeCustomTemplate()])
+        )
+
+        #expect(viewModel.templates.map(\.id) == TemplateCatalog.templates.map(\.id))
+        #expect(viewModel.templates.count == 4)
+        #expect(viewModel.templates.allSatisfy { !$0.isCustomTemplate })
     }
 
     @Test("L10n은 한국어면 한국어, 그 외 언어면 영어를 사용한다")
@@ -47,6 +60,29 @@ struct auto_photosTests {
     func l10nMediaPickerCTA() {
         #expect(L10n(language: .korean).chooseMedia == "미디어 선택하기")
         #expect(L10n(language: .english).chooseMedia == "Choose Media")
+    }
+
+    @Test("Locket 템플릿 태그라인은 언어별 활성 UI 문구를 사용한다")
+    func locketTemplateTaglineCopyIsLocalized() {
+        #expect(L10n(language: .english).templateTagline(for: .lifeInFraems) == "24-cut cinematic opener")
+        #expect(L10n(language: .english).templateTagline(for: .allPhotosFlow) == "Every media item in a 1.1s flow")
+        #expect(L10n(language: .korean).templateTagline(for: .allPhotosFlow) == "선택한 모든 미디어를 1.1초씩 이어붙이기")
+    }
+
+    @Test("선택 검증 문구는 언어별로 미디어 기준 문구를 사용한다")
+    func validationMessageCopyIsLocalizedAndMediaNeutral() {
+        let fixedTemplate = VideoTemplate.lifeInFraems
+        let englishViewModel = makeViewModel(l10n: L10n(language: .english))
+        englishViewModel.selectTemplate(fixedTemplate)
+        englishViewModel.applyResolvedSelection(makeSelection(count: fixedTemplate.photoCount - 1))
+
+        #expect(englishViewModel.localizedValidationMessage(using: L10n(language: .english)) == "23 of 24 media items selected.")
+
+        let koreanViewModel = makeViewModel(l10n: L10n(language: .korean))
+        koreanViewModel.selectTemplate(.lockScreenLog)
+        koreanViewModel.applyResolvedSelection([])
+
+        #expect(koreanViewModel.localizedValidationMessage(using: L10n(language: .korean)) == "최소 1개의 미디어를 선택해주세요. 현재 0개")
     }
 
     @Test("저장과 공유 상태 문구는 L10n 언어에 맞게 표시된다")
@@ -550,14 +586,18 @@ struct auto_photosTests {
 }
 
 @MainActor
-private func makeViewModel(generator: MockVideoGenerationService = MockVideoGenerationService(result: .success(
-    GeneratedVideo(url: tempURL("default"), duration: TemplateCatalog.templates[0].totalDuration, renderOptions: TemplateCatalog.templates[0].previewRenderOptions)
-)), l10n: L10n = L10n()) -> AutoPhotosViewModel {
+private func makeViewModel(
+    generator: MockVideoGenerationService = MockVideoGenerationService(result: .success(
+        GeneratedVideo(url: tempURL("default"), duration: TemplateCatalog.templates[0].totalDuration, renderOptions: TemplateCatalog.templates[0].previewRenderOptions)
+    )),
+    templateLibraryService: MockTemplateLibraryService = MockTemplateLibraryService(),
+    l10n: L10n = L10n()
+) -> AutoPhotosViewModel {
     AutoPhotosViewModel(
         photoLibraryService: MockPhotoLibraryService(),
         videoGenerationService: generator,
         videoSaveService: MockVideoSaveService(),
-        templateLibraryService: MockTemplateLibraryService(),
+        templateLibraryService: templateLibraryService,
         l10n: l10n
     )
 }
@@ -622,8 +662,10 @@ private struct MockVideoSaveService: VideoSaveService {
 }
 
 private struct MockTemplateLibraryService: TemplateLibraryService {
+    var customTemplates: [VideoTemplate] = []
+
     func loadCustomTemplates() -> [VideoTemplate] {
-        []
+        customTemplates
     }
 
     func saveCustomTemplate(_ template: VideoTemplate) throws {}
@@ -639,6 +681,20 @@ private func makeSelection(count: Int) -> [SelectedMediaItem] {
     (0..<count).map { index in
         makeItem(index: index, kind: index.isMultiple(of: 2) ? .photo : .livePhoto)
     }
+}
+
+private func makeCustomTemplate() -> VideoTemplate {
+    VideoTemplate(
+        id: "custom-review-template",
+        name: "Custom Review Template",
+        tagline: "Dormant custom template",
+        description: "A saved custom template that should not appear in the redesigned home gallery.",
+        photoCount: 1,
+        clipDurations: [1.0],
+        audioTrack: nil,
+        textOverlay: nil,
+        theme: .brandDefault
+    )
 }
 
 private func makeItem(index: Int, kind: MediaKind, creationDate: Date? = nil) -> SelectedMediaItem {

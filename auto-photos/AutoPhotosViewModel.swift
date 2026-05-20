@@ -54,10 +54,7 @@ final class AutoPhotosViewModel: ObservableObject {
         self.videoSaveService = videoSaveService
         self.templateLibraryService = templateLibraryService
         self.l10n = l10n
-        self.templates = Self.mergeTemplates(
-            builtInTemplates: TemplateCatalog.templates,
-            customTemplates: templateLibraryService.loadCustomTemplates()
-        )
+        self.templates = TemplateCatalog.templates
     }
 
     var pickerSelectionLimit: Int {
@@ -428,7 +425,7 @@ final class AutoPhotosViewModel: ObservableObject {
         guard canGenerate else {
             alertInfo = AlertInfo(
                 title: l10n.selectionConfirmationTitle,
-                message: localizedValidationMessage(for: selectedTemplate) ?? userMessage(for: AutoPhotosError.invalidSelection)
+                message: localizedValidationMessage(using: l10n) ?? userMessage(for: AutoPhotosError.invalidSelection)
             )
             return
         }
@@ -608,33 +605,39 @@ final class AutoPhotosViewModel: ObservableObject {
         return error.localizedDescription
     }
 
-    private func localizedValidationMessage(for template: VideoTemplate) -> String? {
-        guard validationMessage != nil, l10n.language == .english else {
+    func localizedValidationMessage(using l10n: L10n = L10n()) -> String? {
+        guard let template = selectedTemplate, validationMessage != nil else {
             return validationMessage
         }
 
         let count = selectedItems.count
-        if template.usesSelectionCount {
-            if let minimumPhotoCount = template.minimumPhotoCount, count < minimumPhotoCount {
-                return "Choose at least \(minimumPhotoCount) photos. Currently selected: \(count)."
-            }
+        let isKorean = l10n.language == .korean
 
-            if let maximumPhotoCount = template.maximumSelectionCount, count > maximumPhotoCount {
-                return "Choose up to \(maximumPhotoCount) photos."
-            }
-
-            return nil
+        if template.usesSelectionCount, let minimumPhotoCount = template.minimumPhotoCount, count < minimumPhotoCount {
+            return isKorean
+                ? "최소 \(minimumPhotoCount)개의 미디어를 선택해주세요. 현재 \(count)개"
+                : "Choose at least \(minimumPhotoCount) media items. Currently selected: \(count)."
         }
 
-        if count < template.photoCount {
-            return "\(count) of \(template.photoCount) photos selected."
+        if template.usesSelectionCount, let maximumPhotoCount = template.maximumSelectionCount, count > maximumPhotoCount {
+            return isKorean
+                ? "최대 \(maximumPhotoCount)개의 미디어를 사용할 수 있어요."
+                : "Choose up to \(maximumPhotoCount) media items."
         }
 
-        if count > template.photoCount {
-            return "Choose up to \(template.photoCount) photos."
+        if !template.usesSelectionCount, count < template.photoCount {
+            return isKorean
+                ? "\(template.photoCount)개 중 \(count)개 선택됨"
+                : "\(count) of \(template.photoCount) media items selected."
         }
 
-        return nil
+        if !template.usesSelectionCount, count > template.photoCount {
+            return isKorean
+                ? "최대 \(template.photoCount)개의 미디어를 사용할 수 있어요."
+                : "Choose up to \(template.photoCount) media items."
+        }
+
+        return validationMessage
     }
 
     private func cacheKey(for options: VideoRenderOptions) -> VideoRenderCacheKey {
@@ -668,10 +671,7 @@ final class AutoPhotosViewModel: ObservableObject {
     }
 
     private func refreshTemplates() {
-        templates = Self.mergeTemplates(
-            builtInTemplates: TemplateCatalog.templates,
-            customTemplates: templateLibraryService.loadCustomTemplates()
-        )
+        templates = TemplateCatalog.templates
     }
 
     private static func mergeTemplates(

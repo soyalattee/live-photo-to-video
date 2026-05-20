@@ -35,6 +35,7 @@ struct TemplateGalleryScreen: View {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                         ForEach(templates) { template in
                             LocketTemplateCard(
+                                l10n: l10n,
                                 template: template,
                                 isSelected: selectedTemplate?.id == template.id,
                                 onSelect: { onSelectTemplate(template) }

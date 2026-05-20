@@ -76,7 +76,7 @@ struct ContentView: View {
                     items: viewModel.selectedItems,
                     summary: viewModel.localizedSelectionSummary(using: l10n),
                     estimatedDurationText: viewModel.localizedEstimatedDurationText(using: l10n),
-                    validationMessage: viewModel.validationMessage,
+                    validationMessage: viewModel.localizedValidationMessage(using: l10n),
                     canGenerate: viewModel.canGenerate,
                     onMoveItem: viewModel.moveItem,
                     onMoveItemToEnd: viewModel.moveItemToEnd,

@@ -102,6 +102,7 @@ struct LocketSecondaryButtonStyle: ButtonStyle {
 }
 
 struct LocketTemplateCard: View {
+    let l10n: L10n
     let template: VideoTemplate
     let isSelected: Bool
     let onSelect: () -> Void
@@ -122,7 +123,7 @@ struct LocketTemplateCard: View {
                         .font(LocketTheme.serif(18))
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                    Text(template.tagline)
+                    Text(l10n.templateTagline(for: template))
                         .font(LocketTheme.sans(11))
                         .foregroundStyle(.white.opacity(0.82))
                         .lineLimit(2)
