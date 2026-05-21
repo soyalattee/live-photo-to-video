@@ -141,6 +141,10 @@ final class AutoPhotosViewModel: ObservableObject {
         selectedTemplate != nil && !isGenerating
     }
 
+    var selectedAssetIdentifiers: [String] {
+        selectedItems.map(\.assetLocalIdentifier)
+    }
+
     var generatedVideo: GeneratedVideo? {
         if case let .preview(video) = generationState {
             return video
@@ -498,9 +502,10 @@ final class AutoPhotosViewModel: ObservableObject {
         cinematicTextCustomization = customization
     }
 
-    func saveGeneratedVideo() async {
+    @discardableResult
+    func saveGeneratedVideo() async -> Bool {
         guard case .preview = generationState else {
-            return
+            return false
         }
 
         isSaving = true
@@ -510,8 +515,10 @@ final class AutoPhotosViewModel: ObservableObject {
             let outputVideo = try await video(for: exportOptions)
             try await videoSaveService.saveVideo(at: outputVideo.url)
             toastMessage = l10n.saveSuccessMessage
+            return true
         } catch {
             alertInfo = AlertInfo(title: l10n.saveFailureTitle, message: userMessage(for: error))
+            return false
         }
     }
 

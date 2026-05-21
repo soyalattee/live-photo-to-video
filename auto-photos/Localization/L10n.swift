@@ -42,9 +42,12 @@ struct L10n: Sendable {
     var textOn: String { language == .korean ? "텍스트 포함" : "Text On" }
     var saveToCameraRoll: String { language == .korean ? "사진 앱에 저장" : "Save to Camera Roll" }
     var saveSuccessMessage: String { language == .korean ? "선택한 옵션으로 사진 앱에 저장했어요." : "Saved to Photos with the selected options." }
+    var saveCompleteTitle: String { language == .korean ? "다운로드 완료" : "Download Complete" }
+    var saveCompleteMessage: String { language == .korean ? "영상이 사진 앱에 저장되었어요." : "Your video has been saved to Photos." }
     var saveFailureTitle: String { language == .korean ? "저장 실패" : "Save Failed" }
     var share: String { language == .korean ? "공유하기" : "Share" }
     var shareFailureTitle: String { language == .korean ? "공유 준비 실패" : "Could Not Prepare Share" }
+    var home: String { language == .korean ? "홈으로" : "Home" }
     var retrySequence: String { language == .korean ? "순서 다시 보기" : "Review Sequence" }
     var cancel: String { language == .korean ? "취소" : "Cancel" }
     var close: String { language == .korean ? "닫기" : "Close" }

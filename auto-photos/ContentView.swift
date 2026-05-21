@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var viewModel: AutoPhotosViewModel
     @State private var isPickerPresented = false
+    @State private var isSaveCompletePresented = false
     private let l10n = L10n()
 
     @MainActor
@@ -40,8 +41,19 @@ struct ContentView: View {
                 dismissButton: .default(Text(l10n.language == .korean ? "확인" : "OK"))
             )
         }
+        .alert(l10n.saveCompleteTitle, isPresented: $isSaveCompletePresented) {
+            Button(l10n.home) {
+                viewModel.resetToHome()
+            }
+            Button(l10n.close, role: .cancel) {}
+        } message: {
+            Text(l10n.saveCompleteMessage)
+        }
         .sheet(isPresented: $isPickerPresented) {
-            MediaPickerSheet(selectionLimit: viewModel.pickerSelectionLimit) { results in
+            MediaPickerSheet(
+                selectionLimit: viewModel.pickerSelectionLimit,
+                preselectedAssetIdentifiers: viewModel.selectedAssetIdentifiers
+            ) { results in
                 Task {
                     await viewModel.handlePickerResults(results)
                 }
@@ -79,7 +91,6 @@ struct ContentView: View {
                     validationMessage: viewModel.localizedValidationMessage(using: l10n),
                     canGenerate: viewModel.canGenerate,
                     onMoveItem: viewModel.moveItem,
-                    onMoveItemToEnd: viewModel.moveItemToEnd,
                     onDeleteItem: viewModel.removeItem,
                     onGenerate: viewModel.startGeneration,
                     onReselect: {
@@ -111,7 +122,10 @@ struct ContentView: View {
                     onToggleText: viewModel.updateExportTextOption,
                     onSave: {
                         Task {
-                            await viewModel.saveGeneratedVideo()
+                            let didSave = await viewModel.saveGeneratedVideo()
+                            if didSave {
+                                isSaveCompletePresented = true
+                            }
                         }
                     },
                     onShare: {
@@ -136,6 +150,7 @@ struct ContentView: View {
 
 private struct MediaPickerSheet: UIViewControllerRepresentable {
     let selectionLimit: Int
+    let preselectedAssetIdentifiers: [String]
     let onComplete: ([PHPickerResult]) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -146,6 +161,8 @@ private struct MediaPickerSheet: UIViewControllerRepresentable {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.selectionLimit = selectionLimit
         configuration.filter = .any(of: [.images, .livePhotos, .videos])
+        configuration.preselectedAssetIdentifiers = preselectedAssetIdentifiers
+        configuration.selection = .ordered
 
         let controller = PHPickerViewController(configuration: configuration)
         controller.delegate = context.coordinator

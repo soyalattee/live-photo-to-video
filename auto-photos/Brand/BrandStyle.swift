@@ -36,30 +36,22 @@ struct BrandLogoView: View {
     let size: CGFloat
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(LocketTheme.ink)
-
+        Group {
             if let uiImage = BrandLogoAsset.uiImage {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: size * 0.88, height: size * 0.88)
+                    .frame(width: size, height: size)
                     .clipShape(Circle())
             } else {
                 Image(systemName: "heart.fill")
                     .font(.system(size: size * 0.34, weight: .bold))
                     .foregroundStyle(LocketTheme.accent)
+                    .frame(width: size, height: size)
                     .offset(y: size * 0.02)
             }
         }
         .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: LocketTheme.shadow, radius: size * 0.22, y: size * 0.10)
         .accessibilityLabel("Locket")
     }
 }

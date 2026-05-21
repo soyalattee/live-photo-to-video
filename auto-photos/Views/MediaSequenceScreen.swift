@@ -11,14 +11,12 @@ struct MediaSequenceScreen: View {
     let validationMessage: String?
     let canGenerate: Bool
     let onMoveItem: (SelectedMediaItem, SelectedMediaItem) -> Void
-    let onMoveItemToEnd: (SelectedMediaItem) -> Void
     let onDeleteItem: (SelectedMediaItem) -> Void
     let onGenerate: () -> Void
     let onReselect: () -> Void
     let onReset: () -> Void
 
     @State private var draggedItem: SelectedMediaItem?
-    @State private var pendingDeleteItem: SelectedMediaItem?
 
     var body: some View {
         ZStack {
@@ -39,14 +37,6 @@ struct MediaSequenceScreen: View {
                 LocketTopBar(title: l10n.appName, showsBackButton: true, onBack: onReset)
                 Spacer()
             }
-        }
-        .alert(item: $pendingDeleteItem) { item in
-            Alert(
-                title: Text(l10n.language == .korean ? "미디어 제거" : "Remove Media"),
-                message: Text(l10n.language == .korean ? "\(item.selectionIndex + 1)번째 미디어를 순서에서 제거할까요?" : "Remove media \(item.selectionIndex + 1) from the sequence?"),
-                primaryButton: .destructive(Text(l10n.language == .korean ? "제거" : "Remove")) { onDeleteItem(item) },
-                secondaryButton: .cancel(Text(l10n.cancel))
-            )
         }
     }
 
@@ -81,24 +71,13 @@ struct MediaSequenceScreen: View {
             VStack(spacing: 8) {
                 ForEach(items) { item in
                     LocketSequenceRow(item: item, l10n: l10n) {
-                        pendingDeleteItem = item
+                        onDeleteItem(item)
                     }
                     .onDrag {
                         draggedItem = item
                         return NSItemProvider(object: NSString(string: item.id.uuidString))
                     }
                     .onDrop(of: [UTType.text], delegate: ReorderDropDelegate(targetItem: item, draggedItem: $draggedItem, onMoveItem: onMoveItem))
-                }
-
-                if !items.isEmpty {
-                    endDropTarget
-                        .onDrop(
-                            of: [UTType.text],
-                            delegate: ReorderEndDropDelegate(
-                                draggedItem: $draggedItem,
-                                onMoveItemToEnd: onMoveItemToEnd
-                            )
-                        )
                 }
 
                 Button(action: onReselect) {
@@ -114,30 +93,6 @@ struct MediaSequenceScreen: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    private var endDropTarget: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.down.to.line.compact")
-            Text(l10n.language == .korean ? "끝으로 놓기" : "Drop to end")
-        }
-        .font(LocketTheme.sans(12, weight: .bold))
-        .tracking(0.3)
-        .foregroundStyle(draggedItem == nil ? LocketTheme.inkSoft.opacity(0.55) : Color(hex: 0xA83255))
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .background(
-            LocketTheme.surface.opacity(draggedItem == nil ? 0.45 : 1),
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    draggedItem == nil ? LocketTheme.roseBorder.opacity(0.5) : Color(hex: 0xA83255),
-                    style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
-                )
-        )
-        .accessibilityIdentifier("selection.moveToEndDropTarget")
     }
 
     private var actionSection: some View {
@@ -181,23 +136,5 @@ struct MediaSequenceScreen: View {
             },
             set: { cinematicTextCustomization = $0 }
         )
-    }
-}
-
-private struct ReorderEndDropDelegate: DropDelegate {
-    @Binding var draggedItem: SelectedMediaItem?
-    let onMoveItemToEnd: (SelectedMediaItem) -> Void
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        if let draggedItem {
-            onMoveItemToEnd(draggedItem)
-        }
-
-        draggedItem = nil
-        return true
     }
 }
