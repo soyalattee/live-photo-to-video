@@ -168,7 +168,20 @@ struct LocketInputField: View {
 struct LocketSequenceRow: View {
     let item: SelectedMediaItem
     let l10n: L10n
+    let clipDurationText: String?
     let onDelete: () -> Void
+
+    init(
+        item: SelectedMediaItem,
+        l10n: L10n,
+        clipDurationText: String? = nil,
+        onDelete: @escaping () -> Void
+    ) {
+        self.item = item
+        self.l10n = l10n
+        self.clipDurationText = clipDurationText
+        self.onDelete = onDelete
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -195,6 +208,16 @@ struct LocketSequenceRow: View {
             }
 
             Spacer(minLength: 0)
+
+            if let clipDurationText {
+                Text(clipDurationText)
+                    .font(LocketTheme.sans(12, weight: .bold))
+                    .foregroundStyle(Color(hex: 0xA83255))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(LocketTheme.surface, in: Capsule())
+                    .overlay(Capsule().stroke(LocketTheme.roseBorder.opacity(0.45), lineWidth: 1))
+            }
 
             Button(action: onDelete) {
                 Image(systemName: "trash")

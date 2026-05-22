@@ -54,6 +54,9 @@ struct L10n: Sendable {
     var titleLabel: String { language == .korean ? "TITLE" : "TITLE" }
     var shortSentenceLabel: String { language == .korean ? "SHORT SENTENCE" : "SHORT SENTENCE" }
     var bottomCaptionLabel: String { language == .korean ? "BOTTOM TEXT" : "BOTTOM TEXT" }
+    var textStylePreview: String { language == .korean ? "텍스트 미리보기" : "Text Preview" }
+    var textFillColor: String { language == .korean ? "글자색" : "Text Color" }
+    var textOutlineColor: String { language == .korean ? "아웃라인" : "Outline" }
     var mediaLoading: String { language == .korean ? "선택한 미디어를 템플릿에 맞게 준비하는 중이에요." : "Preparing your media for the selected template." }
     var errorTitle: String { language == .korean ? "문제가 생겼어요" : "Something went wrong" }
     var tryAgain: String { language == .korean ? "다시 시도" : "Try Again" }

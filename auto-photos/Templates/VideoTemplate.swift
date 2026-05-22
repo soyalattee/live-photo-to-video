@@ -102,6 +102,7 @@ enum TemplateClipMediaMode: String, Codable, Equatable, Hashable, Sendable {
 
 enum TemplateTextRevealMode: String, Codable, Equatable, Hashable, Sendable {
     case fade
+    case immediate
     case typewriter
 }
 
@@ -131,6 +132,70 @@ struct TemplateIntroSparkle: Codable, Equatable, Hashable, Sendable {
     let position: TemplateTextPosition
     let color: ColorToken
     let phaseOffset: Double
+}
+
+enum TemplateIntroIconAnimationStyle: String, Codable, Equatable, Hashable, Sendable {
+    case rotation
+    case pulse
+}
+
+struct TemplateIntroIcon: Codable, Equatable, Hashable, Sendable {
+    let imageAsset: TemplateImageAsset
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+    let baseSize: Double
+    let position: TemplateTextPosition
+    let scaleMultiplier: Double
+    let rotationDegrees: Double
+    let animationStyle: TemplateIntroIconAnimationStyle
+    let phaseOffset: Double
+
+    init(
+        imageAsset: TemplateImageAsset,
+        startTime: TimeInterval,
+        endTime: TimeInterval,
+        baseSize: Double,
+        position: TemplateTextPosition,
+        scaleMultiplier: Double,
+        rotationDegrees: Double,
+        animationStyle: TemplateIntroIconAnimationStyle = .rotation,
+        phaseOffset: Double
+    ) {
+        self.imageAsset = imageAsset
+        self.startTime = startTime
+        self.endTime = endTime
+        self.baseSize = baseSize
+        self.position = position
+        self.scaleMultiplier = scaleMultiplier
+        self.rotationDegrees = rotationDegrees
+        self.animationStyle = animationStyle
+        self.phaseOffset = phaseOffset
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case imageAsset
+        case startTime
+        case endTime
+        case baseSize
+        case position
+        case scaleMultiplier
+        case rotationDegrees
+        case animationStyle
+        case phaseOffset
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        imageAsset = try container.decode(TemplateImageAsset.self, forKey: .imageAsset)
+        startTime = try container.decode(TimeInterval.self, forKey: .startTime)
+        endTime = try container.decode(TimeInterval.self, forKey: .endTime)
+        baseSize = try container.decode(Double.self, forKey: .baseSize)
+        position = try container.decode(TemplateTextPosition.self, forKey: .position)
+        scaleMultiplier = try container.decode(Double.self, forKey: .scaleMultiplier)
+        rotationDegrees = try container.decode(Double.self, forKey: .rotationDegrees)
+        animationStyle = try container.decodeIfPresent(TemplateIntroIconAnimationStyle.self, forKey: .animationStyle) ?? .rotation
+        phaseOffset = try container.decode(Double.self, forKey: .phaseOffset)
+    }
 }
 
 struct TemplateAnimatedTextOverlay: Codable, Equatable, Hashable, Sendable {
@@ -235,24 +300,28 @@ struct TemplateCinematicIntroEffect: Codable, Equatable, Sendable {
     let barHeightRatio: Double
     let textOverlays: [TemplateAnimatedTextOverlay]
     let sparkles: [TemplateIntroSparkle]
+    let icons: [TemplateIntroIcon]
 
     enum CodingKeys: String, CodingKey {
         case duration
         case barHeightRatio
         case textOverlays
         case sparkles
+        case icons
     }
 
     init(
         duration: TimeInterval,
         barHeightRatio: Double,
         textOverlays: [TemplateAnimatedTextOverlay],
-        sparkles: [TemplateIntroSparkle] = []
+        sparkles: [TemplateIntroSparkle] = [],
+        icons: [TemplateIntroIcon] = []
     ) {
         self.duration = duration
         self.barHeightRatio = barHeightRatio
         self.textOverlays = textOverlays
         self.sparkles = sparkles
+        self.icons = icons
     }
 
     init(from decoder: Decoder) throws {
@@ -261,6 +330,7 @@ struct TemplateCinematicIntroEffect: Codable, Equatable, Sendable {
         barHeightRatio = try container.decode(Double.self, forKey: .barHeightRatio)
         textOverlays = try container.decode([TemplateAnimatedTextOverlay].self, forKey: .textOverlays)
         sparkles = try container.decodeIfPresent([TemplateIntroSparkle].self, forKey: .sparkles) ?? []
+        icons = try container.decodeIfPresent([TemplateIntroIcon].self, forKey: .icons) ?? []
     }
 
     var normalizedBarHeightRatio: Double {
@@ -671,7 +741,8 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
             duration: cinematicIntro.duration,
             barHeightRatio: cinematicIntro.barHeightRatio,
             textOverlays: updatedOverlays,
-            sparkles: cinematicIntro.sparkles
+            sparkles: cinematicIntro.sparkles,
+            icons: cinematicIntro.icons
         )
     }
 

@@ -10,6 +10,7 @@ import Foundation
 enum TemplateCatalog {
     static let templates: [VideoTemplate] = [
         .restaurantRecommendation,
+        .restaurantShortForm,
         .lockScreenLog,
         .lifeInFraems,
         .allPhotosFlow,

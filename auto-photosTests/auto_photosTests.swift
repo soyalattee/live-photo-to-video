@@ -28,20 +28,20 @@ struct auto_photosTests {
         #expect(!TemplateCatalog.templates.map(\.name).contains("Life in Fraems"))
     }
 
-    @Test("홈 경험은 내장 템플릿 네 개만 제공한다")
+    @Test("홈 경험은 내장 템플릿 다섯 개만 제공한다")
     func homeExperienceUsesOnlyBuiltInTemplates() {
-        #expect(TemplateCatalog.templates.count == 4)
+        #expect(TemplateCatalog.templates.count == 5)
         #expect(TemplateCatalog.templates.allSatisfy { !$0.isCustomTemplate })
     }
 
-    @Test("ViewModel 홈 템플릿은 저장된 커스텀 템플릿이 있어도 내장 네 개만 노출한다")
+    @Test("ViewModel 홈 템플릿은 저장된 커스텀 템플릿이 있어도 내장 다섯 개만 노출한다")
     func viewModelHomeTemplatesIgnoreCustomTemplates() {
         let viewModel = makeViewModel(
             templateLibraryService: MockTemplateLibraryService(customTemplates: [makeCustomTemplate()])
         )
 
         #expect(viewModel.templates.map(\.id) == TemplateCatalog.templates.map(\.id))
-        #expect(viewModel.templates.count == 4)
+        #expect(viewModel.templates.count == 5)
         #expect(viewModel.templates.allSatisfy { !$0.isCustomTemplate })
     }
 
@@ -111,7 +111,7 @@ struct auto_photosTests {
 
     @Test("ViewModel은 미리보기 상태와 오류 상태 문구를 L10n 언어로 만든다")
     func previewAndErrorRouteCopyUsesInjectedL10nLanguage() async throws {
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.lifeInFraems
         let generator = MockVideoGenerationService(
             result: .success(
                 GeneratedVideo(
@@ -256,21 +256,62 @@ struct auto_photosTests {
         #expect(viewModel.localizedExportSectionNote(using: en) == en.textUnavailable)
     }
 
-    @Test("템플릿은 정확한 사진 수와 총 길이를 관리한다")
+    @Test("맛집 추천 템플릿은 요청한 동적 컷 길이와 즉시 표시 텍스트를 사용한다")
     func templateValidationAndDuration() {
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.restaurantRecommendation
 
-        #expect(template.photoCount == 10)
-        #expect(template.validationMessage(for: 9) == "10장 중 9장 선택됨")
-        #expect(template.validationMessage(for: 10) == nil)
-        #expect(template.validationMessage(for: 11) == "10장까지만 사용할 수 있어요.")
-        #expect(abs(template.totalDuration - 20.9) < 0.0001)
+        #expect(template.usesSelectionCount)
+        #expect(template.photoCount == 0)
+        #expect(template.resolvedClipDurations(for: 1) == [1.5])
+        #expect(template.resolvedClipDurations(for: 10) == [1.5, 2.0, 1.5, 1.5, 2.0, 1.5, 1.5, 1.5, 1.5, 1.5])
+        #expect(template.resolvedClipDurations(for: 12) == [1.5, 2.0, 1.5, 1.5, 2.0, 1.5, 1.5, 1.5, 1.5, 1.5, 2.0, 2.0])
+        #expect(template.totalDuration(for: 10) == 16.0)
+        #expect(template.cinematicIntro?.duration == 1.5)
+        #expect(template.cinematicIntro?.textOverlays.allSatisfy { $0.revealMode == .immediate } == true)
+        #expect(template.cinematicIntro?.icons.count == 2)
+        #expect(template.cinematicIntro?.icons.allSatisfy { $0.imageAsset.resourceName == "restaurant_sparkle" } == true)
+        #expect(template.cinematicIntro?.icons.allSatisfy { $0.scaleMultiplier == 0.75 } == true)
+        #expect(template.cinematicIntro?.icons.allSatisfy { $0.animationStyle == .pulse } == true)
+        #expect(template.cinematicIntro?.icons.first?.position == TemplateTextPosition(x: 0.18, y: 0.76))
+    }
+
+    @Test("맛집 인트로 미리보기 텍스트 레이아웃은 영상 렌더링처럼 아래로 쌓인다")
+    func restaurantIntroPreviewTextLayoutsStackBelowTitle() throws {
+        let intro = try #require(VideoTemplate.restaurantRecommendation.cinematicIntro)
+        let layouts = TemplateIntroRenderSupport.textLayouts(for: intro.textOverlays)
+
+        #expect(layouts.count == 2)
+        #expect(layouts[1].frame.minY > layouts[0].frame.maxY)
+    }
+
+    @Test("맛집 인트로 영상 좌표 변환은 프리뷰의 상하 위치를 유지한다")
+    func restaurantIntroVideoLayerCoordinatesMatchPreviewLayout() throws {
+        let intro = try #require(VideoTemplate.restaurantRecommendation.cinematicIntro)
+        let layouts = TemplateIntroRenderSupport.textLayouts(for: intro.textOverlays)
+        let videoTextFrames = layouts.map {
+            TemplateIntroRenderSupport.videoLayerFrame(fromTopLeftFrame: $0.frame)
+        }
+
+        #expect(videoTextFrames.count == 2)
+        #expect(videoTextFrames[1].maxY < videoTextFrames[0].minY)
+
+        let iconFrames = intro.icons.map {
+            TemplateIntroRenderSupport.iconFrame(for: $0)
+        }
+        let videoIconFrames = iconFrames.map {
+            TemplateIntroRenderSupport.videoLayerFrame(fromTopLeftFrame: $0)
+        }
+
+        #expect(iconFrames.count == 2)
+        #expect(iconFrames[1].midY < iconFrames[0].midY)
+        #expect(videoIconFrames[1].midY > videoIconFrames[0].midY)
+        #expect(videoIconFrames[1].midX > videoIconFrames[0].midX)
     }
 
     @Test("템플릿 선택 후 사진 순서를 다시 배치할 수 있다")
     func selectionCanBeReordered() {
         let viewModel = makeViewModel()
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.lifeInFraems
         viewModel.selectTemplate(template)
         viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
 
@@ -286,7 +327,7 @@ struct auto_photosTests {
     @Test("선택한 미디어를 순서의 마지막으로 이동할 수 있다")
     func selectionCanMoveItemToEnd() {
         let viewModel = makeViewModel()
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.lifeInFraems
         viewModel.selectTemplate(template)
         viewModel.applyResolvedSelection(makeSelection(count: template.photoCount))
 
@@ -301,7 +342,7 @@ struct auto_photosTests {
 
     @Test("정상 생성 시 preview 상태로 전이한다")
     func generationSuccessTransitionsToPreview() async throws {
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.lifeInFraems
         let generator = MockVideoGenerationService(
             result: .success(
                 GeneratedVideo(
@@ -328,7 +369,7 @@ struct auto_photosTests {
 
     @Test("생성 취소 시 selectionReview 상태로 돌아간다")
     func cancellationTransitionsBackToSelectionReview() async throws {
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.lifeInFraems
         let generator = MockVideoGenerationService(result: .cancellable)
         let viewModel = makeViewModel(generator: generator)
 
@@ -351,7 +392,7 @@ struct auto_photosTests {
 
     @Test("저장 실패 시 preview 상태는 유지되고 alert가 표시된다")
     func saveFailureKeepsPreviewState() async throws {
-        let template = TemplateCatalog.templates[0]
+        let template = VideoTemplate.lifeInFraems
         let generator = MockVideoGenerationService(
             result: .success(
                 GeneratedVideo(
@@ -412,7 +453,7 @@ struct auto_photosTests {
                 fontSize: 74,
                 position: TemplateTextPosition(x: 0.5, y: 0.18)
             ),
-            theme: TemplateCatalog.templates[0].theme
+            theme: VideoTemplate.lifeInFraems.theme
         )
         let generator = MockVideoGenerationService(
             result: .dynamic { request in
@@ -464,10 +505,24 @@ struct auto_photosTests {
         #expect(TemplateCatalog.templates.contains { $0.id == VideoTemplate.lockScreenLog.id })
     }
 
-    @Test("기본 카탈로그는 유지할 네 가지 템플릿만 노출한다")
+    @Test("맛집 숏폼 템플릿은 맛집 추천 템플릿과 같은 폼을 사용한다")
+    func restaurantShortFormTemplateMatchesRestaurantForm() {
+        let template = VideoTemplate.restaurantShortForm
+
+        #expect(template.usesSelectionCount)
+        #expect(template.leadingClipDurations == VideoTemplate.restaurantRecommendation.leadingClipDurations)
+        #expect(template.repeatingClipDuration == 2.0)
+        #expect(template.cinematicIntro?.duration == 1.5)
+        #expect(template.cinematicIntro?.textOverlays.count == 2)
+        #expect(template.cinematicIntro?.textOverlays.allSatisfy { $0.revealMode == .immediate } == true)
+        #expect(template.cinematicIntro?.icons.isEmpty == true)
+    }
+
+    @Test("기본 카탈로그는 승인된 다섯 가지 템플릿만 노출한다")
     func templateCatalogOnlyShowsApprovedTemplates() {
         #expect(TemplateCatalog.templates.map(\.id) == [
             "restaurant-recommendation",
+            "restaurant-short-form",
             "lock-screen-log",
             "life-in-fraems",
             "all-photos-flow",
@@ -588,7 +643,7 @@ struct auto_photosTests {
 @MainActor
 private func makeViewModel(
     generator: MockVideoGenerationService = MockVideoGenerationService(result: .success(
-        GeneratedVideo(url: tempURL("default"), duration: TemplateCatalog.templates[0].totalDuration, renderOptions: TemplateCatalog.templates[0].previewRenderOptions)
+        GeneratedVideo(url: tempURL("default"), duration: VideoTemplate.lifeInFraems.totalDuration, renderOptions: VideoTemplate.lifeInFraems.previewRenderOptions)
     )),
     templateLibraryService: MockTemplateLibraryService = MockTemplateLibraryService(),
     l10n: L10n = L10n()

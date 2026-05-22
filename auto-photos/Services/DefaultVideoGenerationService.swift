@@ -872,21 +872,16 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             return
         }
 
-        var previousTextLayer: CALayer?
-        for overlay in effect.textOverlays where overlay.endTime > overlay.startTime {
-            let textLayer = makeAnimatedTextLayer(for: overlay)
-            if overlay.stacksBelowPreviousText, let previousTextLayer {
-                position(textLayer, below: previousTextLayer)
-            }
+        for layout in TemplateIntroRenderSupport.textLayouts(for: effect.textOverlays, renderSize: renderSize) {
+            let textLayer = makeAnimatedTextLayer(for: layout)
             parentLayer.addSublayer(textLayer)
-            previousTextLayer = textLayer
 
-            switch overlay.revealMode {
+            switch layout.overlay.revealMode {
             case .fade:
-                let startProgress = max(0, min(overlay.startTime / totalDuration, 1))
-                let endProgress = max(startProgress, min(overlay.endTime / totalDuration, 1))
-                let enterProgress = min((overlay.startTime + 0.12) / totalDuration, endProgress)
-                let exitProgress = max(enterProgress, min((overlay.endTime - 0.12) / totalDuration, 1))
+                let startProgress = max(0, min(layout.overlay.startTime / totalDuration, 1))
+                let endProgress = max(startProgress, min(layout.overlay.endTime / totalDuration, 1))
+                let enterProgress = min((layout.overlay.startTime + 0.12) / totalDuration, endProgress)
+                let exitProgress = max(enterProgress, min((layout.overlay.endTime - 0.12) / totalDuration, 1))
                 let opacityAnimation = makeOverlayOpacityAnimation(
                     totalDuration: totalDuration,
                     startProgress: startProgress,
@@ -895,36 +890,38 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                     endProgress: endProgress
                 )
                 textLayer.add(opacityAnimation, forKey: "animatedTextFade")
+            case .immediate:
+                textLayer.opacity = 1
+                let startProgress = max(0, min(layout.overlay.startTime / totalDuration, 1))
+                let endProgress = max(startProgress, min(layout.overlay.endTime / totalDuration, 1))
+                let opacityAnimation = makeOverlayOpacityAnimation(
+                    totalDuration: totalDuration,
+                    startProgress: startProgress,
+                    enterProgress: startProgress,
+                    exitProgress: endProgress,
+                    endProgress: endProgress
+                )
+                opacityAnimation.values = [1, 1, 1, 1, 0, 0]
+                textLayer.add(opacityAnimation, forKey: "animatedTextImmediate")
             case .typewriter:
                 applyTypewriterAnimation(
                     to: textLayer,
-                    overlay: overlay,
+                    overlay: layout.overlay,
                     totalDuration: totalDuration
                 )
             }
         }
 
+        addIntroIcons(
+            to: parentLayer,
+            icons: effect.icons,
+            totalDuration: totalDuration
+        )
         addIntroSparkles(
             to: parentLayer,
             sparkles: effect.sparkles,
             totalDuration: totalDuration
         )
-    }
-
-    private func position(_ textLayer: CALayer, below previousTextLayer: CALayer) {
-        let gap = renderSize.height * 0.012
-        var previousFrame = previousTextLayer.frame
-        var stackedFrame = textLayer.frame
-        stackedFrame.origin.y = previousFrame.minY - gap - stackedFrame.height
-
-        if stackedFrame.minY < 48 {
-            let adjustment = 48 - stackedFrame.minY
-            stackedFrame.origin.y += adjustment
-            previousFrame.origin.y += adjustment
-            previousTextLayer.frame = previousFrame
-        }
-
-        textLayer.frame = stackedFrame
     }
 
     private func addIntroSparkles(
@@ -972,6 +969,80 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         }
     }
 
+    private func addIntroIcons(
+        to parentLayer: CALayer,
+        icons: [TemplateIntroIcon],
+        totalDuration: TimeInterval
+    ) {
+        for icon in icons where icon.endTime > icon.startTime {
+            guard let iconLayer = makeIntroIconLayer(for: icon) else {
+                continue
+            }
+            parentLayer.addSublayer(iconLayer)
+
+            let startProgress = max(0, min(icon.startTime / totalDuration, 1))
+            let endProgress = max(startProgress, min(icon.endTime / totalDuration, 1))
+            let opacityAnimation = makeOverlayOpacityAnimation(
+                totalDuration: totalDuration,
+                startProgress: startProgress,
+                enterProgress: startProgress,
+                exitProgress: endProgress,
+                endProgress: endProgress
+            )
+            opacityAnimation.values = [1, 1, 1, 1, 0, 0]
+            iconLayer.add(opacityAnimation, forKey: "introIconOpacity")
+
+            switch icon.animationStyle {
+            case .rotation:
+                let rotationAnimation = CABasicAnimation(keyPath: "transform.rotation.z")
+                let rotationRadians = CGFloat(icon.rotationDegrees * .pi / 180)
+                rotationAnimation.fromValue = -rotationRadians
+                rotationAnimation.toValue = rotationRadians
+                rotationAnimation.beginTime = AVCoreAnimationBeginTimeAtZero + icon.startTime + icon.phaseOffset
+                rotationAnimation.duration = 0.55
+                rotationAnimation.autoreverses = true
+                rotationAnimation.repeatCount = .greatestFiniteMagnitude
+                rotationAnimation.timingFunction = CAMediaTimingFunction(name: .linear)
+                rotationAnimation.isRemovedOnCompletion = false
+                iconLayer.add(rotationAnimation, forKey: "introIconRotate")
+            case .pulse:
+                let scaleAnimation = CAKeyframeAnimation(keyPath: "transform.scale")
+                scaleAnimation.values = [0.82, 1.06, 0.92, 1.03, 0.86]
+                scaleAnimation.keyTimes = [0, 0.2, 0.5, 0.78, 1]
+                scaleAnimation.beginTime = AVCoreAnimationBeginTimeAtZero + icon.startTime + icon.phaseOffset
+                scaleAnimation.duration = 1.85
+                scaleAnimation.repeatCount = .greatestFiniteMagnitude
+                scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                scaleAnimation.isRemovedOnCompletion = false
+                iconLayer.add(scaleAnimation, forKey: "introIconPulse")
+            }
+        }
+    }
+
+    private func makeIntroIconLayer(for icon: TemplateIntroIcon) -> CALayer? {
+        guard
+            let assetURL = icon.imageAsset.assetURL,
+            let image = UIImage(contentsOfFile: assetURL.path),
+            let cgImage = image.cgImage
+        else {
+            return nil
+        }
+
+        let iconLayer = CALayer()
+        iconLayer.frame = TemplateIntroRenderSupport.videoLayerFrame(
+            fromTopLeftFrame: TemplateIntroRenderSupport.iconFrame(
+                for: icon,
+                renderSize: renderSize
+            ),
+            renderSize: renderSize
+        )
+        iconLayer.contents = cgImage
+        iconLayer.contentsGravity = .resizeAspect
+        iconLayer.contentsScale = UIScreen.main.scale
+        iconLayer.opacity = 0
+        return iconLayer
+    }
+
     private func makeSparkleLayer(for sparkle: TemplateIntroSparkle) -> CALayer {
         let font = AppFontCatalog.uiKitFont(
             "AvenirNext-DemiBold",
@@ -979,12 +1050,16 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             fallbackWeight: .bold
         )
         let layerSize = CGSize(width: sparkle.fontSize * 2.4, height: sparkle.fontSize * 2.4)
-        let sparkleLayer = CALayer()
-        sparkleLayer.frame = CGRect(
+        let topLeftFrame = CGRect(
             x: (renderSize.width * sparkle.position.normalizedX) - (layerSize.width / 2),
             y: (renderSize.height * sparkle.position.normalizedY) - (layerSize.height / 2),
             width: layerSize.width,
             height: layerSize.height
+        )
+        let sparkleLayer = CALayer()
+        sparkleLayer.frame = TemplateIntroRenderSupport.videoLayerFrame(
+            fromTopLeftFrame: topLeftFrame,
+            renderSize: renderSize
         )
         sparkleLayer.contentsGravity = .resizeAspect
         sparkleLayer.contentsScale = UIScreen.main.scale
@@ -1035,72 +1110,18 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         barLayer.add(animation, forKey: "letterboxReveal")
     }
 
-    private func makeAnimatedTextLayer(for overlay: TemplateAnimatedTextOverlay) -> CALayer {
-        let horizontalMargin = renderSize.width * max((1 - overlay.normalizedMaxWidthRatio) / 2, 0.05)
-        let maxWidth = renderSize.width - (horizontalMargin * 2)
-        let maxHeight = renderSize.height * 0.34
-        let resolvedFont = AppFontCatalog.uiKitFont(
-            overlay.fontName,
-            size: CGFloat(overlay.fontSize),
-            fallbackWeight: .bold
-        )
-        let attributedText = makeAttributedText(
-            text: overlay.text,
-            font: resolvedFont,
-            color: overlay.color.uiColor,
-            shadow: overlay.shadow.map(makeShadow),
-            glow: overlay.glow.map(makeGlow),
-            stroke: overlay.stroke,
-            lineBreakMode: .byWordWrapping,
-            lineHeightMultiple: overlay.normalizedLineHeightMultiple
-        )
-        let textInsets = makeTextInsets(
-            for: overlay.shadow.map(makeShadow),
-            glow: overlay.glow.map(makeGlow),
-            stroke: overlay.stroke
-        )
-        let measuredHeight = min(
-            ceil(
-                attributedText.boundingRect(
-                    with: CGSize(
-                        width: max(maxWidth - textInsets.left - textInsets.right, 1),
-                        height: .greatestFiniteMagnitude
-                    ),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    context: nil
-                ).height
-            ) + textInsets.top + textInsets.bottom,
-            maxHeight
-        )
-        let textFrame = CGRect(
-            x: horizontalMargin,
-            y: min(
-                max((renderSize.height * overlay.position.normalizedY) - (measuredHeight / 2), 48),
-                renderSize.height - measuredHeight - 48
-            ),
-            width: maxWidth,
-            height: measuredHeight
-        )
-
+    private func makeAnimatedTextLayer(for layout: TemplateIntroRenderedTextOverlay) -> CALayer {
         let textLayer = CALayer()
-        textLayer.frame = textFrame
+        textLayer.frame = TemplateIntroRenderSupport.videoLayerFrame(
+            fromTopLeftFrame: layout.frame,
+            renderSize: renderSize
+        )
         textLayer.contentsGravity = .resizeAspect
         textLayer.contentsScale = UIScreen.main.scale
         textLayer.opacity = 0
 
-        if overlay.revealMode == .fade {
-            textLayer.contents = makeAdvancedTextImage(
-                text: overlay.text,
-                font: resolvedFont,
-                color: overlay.color.uiColor,
-                size: textFrame.size,
-                shadow: overlay.shadow.map(makeShadow),
-                glow: overlay.glow.map(makeGlow),
-                stroke: overlay.stroke,
-                fillExpansion: overlay.fillExpansion,
-                lineHeightMultiple: overlay.normalizedLineHeightMultiple,
-                referenceText: overlay.text
-            )?.cgImage
+        if layout.overlay.revealMode == .fade || layout.overlay.revealMode == .immediate {
+            textLayer.contents = layout.image?.cgImage
         }
 
         return textLayer
@@ -1233,6 +1254,10 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         exportSession.videoComposition = videoComposition
         exportSession.audioMix = audioMix
 
+        try await export(exportSession)
+    }
+
+    private func export(_ exportSession: AVAssetExportSession) async throws {
         setActiveExportSession(exportSession)
         defer { clearActiveExportSession(exportSession) }
 
@@ -1370,34 +1395,41 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             throw AutoPhotosError.assetNotFound
         }
 
-        guard
-            let resource = PHAssetResource.assetResources(for: asset).first(where: {
-                $0.type == .video || $0.type == .fullSizeVideo
-            })
-        else {
-            throw AutoPhotosError.videoAssetNotFound
+        let options = PHVideoRequestOptions()
+        options.version = .current
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+
+        let exportSession = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AVAssetExportSession, Error>) in
+            imageManager.requestExportSession(
+                forVideo: asset,
+                options: options,
+                exportPreset: AVAssetExportPresetHighestQuality
+            ) { session, _ in
+                guard let session else {
+                    continuation.resume(throwing: AutoPhotosError.videoAssetNotFound)
+                    return
+                }
+
+                continuation.resume(returning: session)
+            }
         }
 
-        let outputURL = makeTemporaryURL(prefix: "auto-photos-source-video", pathExtension: resource.originalFilename.pathExtensionOrDefault)
-        let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
+        let outputFileType: AVFileType = exportSession.supportedFileTypes.contains(.mp4) ? .mp4 : .mov
+        let outputURL = makeTemporaryURL(
+            prefix: "auto-photos-source-video",
+            pathExtension: outputFileType == .mp4 ? "mp4" : "mov"
+        )
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = outputFileType
+        exportSession.shouldOptimizeForNetworkUse = true
 
         do {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                PHAssetResourceManager.default().writeData(for: resource, toFile: outputURL, options: options) { error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-
-                    continuation.resume(returning: ())
-                }
-            }
-
+            try await export(exportSession)
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
-            throw AutoPhotosError.videoAssetNotFound
+            throw error
         }
     }
 
