@@ -12,22 +12,64 @@ import UIKit
 enum MediaKind: String, CaseIterable, Sendable {
     case photo
     case livePhoto
+    case video
+
+    var displayName: String {
+        displayName(using: L10n())
+    }
+
+    func displayName(using l10n: L10n) -> String {
+        switch (self, l10n.language) {
+        case (.photo, .korean):
+            return "사진"
+        case (.photo, .english):
+            return "Photo"
+        case (.livePhoto, _):
+            return "Live Photo"
+        case (.video, .korean):
+            return "영상"
+        case (.video, .english):
+            return "Video"
+        }
+    }
 }
 
 struct SelectedMediaItem: Identifiable {
+    let id: UUID
     let assetLocalIdentifier: String
     let kind: MediaKind
-    let selectionIndex: Int
+    var selectionIndex: Int
+    let creationDate: Date?
     let thumbnail: UIImage
 
-    var id: String {
-        "\(assetLocalIdentifier)-\(selectionIndex)"
+    init(
+        id: UUID = UUID(),
+        assetLocalIdentifier: String,
+        kind: MediaKind,
+        selectionIndex: Int,
+        creationDate: Date? = nil,
+        thumbnail: UIImage
+    ) {
+        self.id = id
+        self.assetLocalIdentifier = assetLocalIdentifier
+        self.kind = kind
+        self.selectionIndex = selectionIndex
+        self.creationDate = creationDate
+        self.thumbnail = thumbnail
     }
+}
+
+struct VideoRenderOptions: Equatable, Hashable, Sendable {
+    var includesMusic: Bool
+    var includesText: Bool
+
+    static let none = VideoRenderOptions(includesMusic: false, includesText: false)
 }
 
 struct GeneratedVideo: Equatable, Sendable {
     let url: URL
     let duration: TimeInterval
+    let renderOptions: VideoRenderOptions
 }
 
 enum GenerationStep: String, CaseIterable, Sendable {
@@ -36,24 +78,44 @@ enum GenerationStep: String, CaseIterable, Sendable {
     case exporting
 
     var title: String {
-        switch self {
-        case .preparing:
-            return "불러오는 중"
-        case .composing:
-            return "합성 중"
-        case .exporting:
-            return "내보내는 중"
+        title(using: L10n())
+    }
+
+    func title(using l10n: L10n) -> String {
+        switch (self, l10n.language) {
+        case (.preparing, .korean):
+            return "소스를 정리하는 중"
+        case (.preparing, .english):
+            return "Preparing sources"
+        case (.composing, .korean):
+            return "템플릿 컷을 배치하는 중"
+        case (.composing, .english):
+            return "Arranging template cuts"
+        case (.exporting, .korean):
+            return "최종 영상을 굽는 중"
+        case (.exporting, .english):
+            return "Exporting final video"
         }
     }
 
     var subtitle: String {
-        switch self {
-        case .preparing:
-            return "선택한 사진과 Live Photo를 정리하고 있어요."
-        case .composing:
-            return "세로형 쇼츠 타임라인을 만들고 있어요."
-        case .exporting:
-            return "사진 앱에 저장할 수 있는 MP4로 내보내는 중이에요."
+        subtitle(using: L10n())
+    }
+
+    func subtitle(using l10n: L10n) -> String {
+        switch (self, l10n.language) {
+        case (.preparing, .korean):
+            return "선택한 미디어를 템플릿 순서에 맞게 준비하고 있어요."
+        case (.preparing, .english):
+            return "Preparing your selected media for the template sequence."
+        case (.composing, .korean):
+            return "각 장면 길이와 비율을 맞춰 세로형 타임라인을 만들고 있어요."
+        case (.composing, .english):
+            return "Building a vertical timeline with the right timing and crop for each scene."
+        case (.exporting, .korean):
+            return "미리보기와 저장에 사용할 MP4를 내보내는 중이에요."
+        case (.exporting, .english):
+            return "Exporting the MP4 used for preview, saving, and sharing."
         }
     }
 }
@@ -71,68 +133,31 @@ enum ErrorRecoveryDestination: Sendable {
     case selectionReview
 }
 
-struct SelectionRules {
-    static let minimumCount = 3
-    static let maximumCount = 30
+enum SelectionRules {
+    static let librarySelectionUpperBound = 30
 
-    static func isValid(_ count: Int) -> Bool {
-        (minimumCount...maximumCount).contains(count)
-    }
-
-    static func validationMessage(for count: Int) -> String? {
-        if count < minimumCount {
-            return "최소 3장 선택"
+    static func pickerLimit(for template: VideoTemplate?) -> Int {
+        guard let template else {
+            return librarySelectionUpperBound
         }
 
-        if count > maximumCount {
-            return "최대 30장까지 선택할 수 있어요."
-        }
-
-        return nil
-    }
-}
-
-enum ResolvedClipKind: Sendable {
-    case stillImage
-    case liveVideo
-}
-
-struct ClipDescriptor: Equatable, Sendable {
-    let kind: ResolvedClipKind
-    let duration: TimeInterval
-}
-
-struct ClipDurationPolicy {
-    static let photoDuration: TimeInterval = 1.6
-    static let livePhotoDuration: TimeInterval = 1.6
-
-    static func descriptor(for mediaKind: MediaKind, liveVideoAvailable: Bool) -> ClipDescriptor {
-        switch mediaKind {
-        case .photo:
-            return ClipDescriptor(kind: .stillImage, duration: photoDuration)
-        case .livePhoto:
-            if liveVideoAvailable {
-                return ClipDescriptor(kind: .liveVideo, duration: livePhotoDuration)
+        if template.usesSelectionCount {
+            if let maximumSelectionCount = template.maximumSelectionCount {
+                return min(maximumSelectionCount, librarySelectionUpperBound)
             }
 
-            return ClipDescriptor(kind: .stillImage, duration: photoDuration)
+            return 0
         }
-    }
 
-    static func totalDuration(for kinds: [MediaKind]) -> TimeInterval {
-        kinds.reduce(0) { partialResult, kind in
-            partialResult + duration(for: kind)
-        }
+        return min(template.photoCount, librarySelectionUpperBound)
     }
+}
 
-    static func duration(for kind: MediaKind) -> TimeInterval {
-        switch kind {
-        case .photo:
-            return photoDuration
-        case .livePhoto:
-            return livePhotoDuration
-        }
-    }
+struct VideoGenerationRequest: Sendable {
+    let items: [SelectedMediaItem]
+    let template: VideoTemplate
+    let renderOptions: VideoRenderOptions
+    let cinematicTextCustomization: TemplateCinematicTextCustomization?
 }
 
 struct AlertInfo: Identifiable, Equatable, Sendable {
@@ -141,13 +166,18 @@ struct AlertInfo: Identifiable, Equatable, Sendable {
     let message: String
 }
 
+struct ShareSheetPayload: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let url: URL
+}
+
 protocol PhotoLibraryService {
     func resolveSelection(from assetIdentifiers: [String]) async throws -> [SelectedMediaItem]
 }
 
 protocol VideoGenerationService {
     func generateVideo(
-        from items: [SelectedMediaItem],
+        from request: VideoGenerationRequest,
         progress: @escaping @Sendable (GenerationStep) -> Void
     ) async throws -> GeneratedVideo
 
@@ -163,25 +193,67 @@ enum AutoPhotosError: LocalizedError, Equatable {
     case assetNotFound
     case imageLoadingFailed
     case livePhotoVideoNotFound
+    case videoAssetNotFound
     case exportFailed
     case savePermissionDenied
     case saveFailed
     case invalidSelection
+    case templateMissing
+    case templateConfigurationInvalid
 
     var errorDescription: String? {
         switch self {
-        case .assetIdentifierMissing, .assetNotFound, .invalidSelection:
+        case .assetIdentifierMissing, .assetNotFound:
             return "선택한 사진을 불러오지 못했어요. 다시 선택해주세요."
         case .imageLoadingFailed:
             return "사진을 불러오는 중 문제가 생겼어요."
         case .livePhotoVideoNotFound:
             return "Live Photo 영상을 찾지 못했어요."
+        case .videoAssetNotFound:
+            return "선택한 영상을 불러오지 못했어요."
         case .exportFailed:
             return "영상 생성에 실패했어요. 다시 시도해주세요."
         case .savePermissionDenied:
             return "사진 앱에 저장하려면 저장 권한이 필요해요."
         case .saveFailed:
             return "저장에 실패했어요. 저장 공간과 권한을 확인해주세요."
+        case .invalidSelection:
+            return "템플릿에 맞는 개수로 사진을 다시 선택해주세요."
+        case .templateMissing:
+            return "먼저 템플릿을 선택해주세요."
+        case .templateConfigurationInvalid:
+            return "템플릿 설정에 문제가 있어요. 템플릿 정보를 확인해주세요."
+        }
+    }
+}
+
+extension AutoPhotosError {
+    func userMessage(using l10n: L10n) -> String {
+        guard l10n.language == .english else {
+            return errorDescription ?? localizedDescription
+        }
+
+        switch self {
+        case .assetIdentifierMissing, .assetNotFound:
+            return "Could not load the selected photo. Please choose it again."
+        case .imageLoadingFailed:
+            return "Something went wrong while loading the photo."
+        case .livePhotoVideoNotFound:
+            return "Could not find the Live Photo video."
+        case .videoAssetNotFound:
+            return "Could not load the selected video."
+        case .exportFailed:
+            return "Video generation failed. Please try again."
+        case .savePermissionDenied:
+            return "Allow Photos access to save this video."
+        case .saveFailed:
+            return "Saving failed. Check your available storage and Photos access."
+        case .invalidSelection:
+            return "Choose the number of photos required for this template."
+        case .templateMissing:
+            return "Choose a template first."
+        case .templateConfigurationInvalid:
+            return "There is a problem with this template configuration. Check the template details."
         }
     }
 }

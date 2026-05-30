@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct auto_photosApp: App {
+    init() {
+        AppFontCatalog.registerBundledFonts()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

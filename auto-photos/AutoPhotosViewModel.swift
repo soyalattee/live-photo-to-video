@@ -13,47 +13,136 @@ import UIKit
 
 @MainActor
 final class AutoPhotosViewModel: ObservableObject {
+    private struct VideoRenderCacheKey: Hashable {
+        let options: VideoRenderOptions
+        let cinematicTextCustomization: TemplateCinematicTextCustomization?
+    }
+
     @Published var generationState: GenerationState = .idle
+    @Published var templates: [VideoTemplate] = []
+    @Published var selectedTemplate: VideoTemplate?
+    @Published var cinematicTextCustomization: TemplateCinematicTextCustomization?
     @Published var selectedItems: [SelectedMediaItem] = []
+    @Published var exportOptions: VideoRenderOptions = .none
     @Published var alertInfo: AlertInfo?
     @Published var toastMessage: String?
+    @Published var shareSheetPayload: ShareSheetPayload?
     @Published var isSaving = false
+    @Published var isSharing = false
     @Published var isResolvingSelection = false
     @Published var pickerResetToken = UUID()
 
     private let photoLibraryService: PhotoLibraryService
     private let videoGenerationService: VideoGenerationService
     private let videoSaveService: VideoSaveService
+    private let templateLibraryService: TemplateLibraryService
+    private let l10n: L10n
 
     private var recoveryDestination: ErrorRecoveryDestination = .home
     private var generationTask: Task<Void, Never>?
-    private var cachedGeneratedVideo: GeneratedVideo?
+    private var renderedVideos: [VideoRenderCacheKey: GeneratedVideo] = [:]
 
     init(
         photoLibraryService: PhotoLibraryService,
         videoGenerationService: VideoGenerationService,
-        videoSaveService: VideoSaveService
+        videoSaveService: VideoSaveService,
+        templateLibraryService: TemplateLibraryService,
+        l10n: L10n = L10n()
     ) {
         self.photoLibraryService = photoLibraryService
         self.videoGenerationService = videoGenerationService
         self.videoSaveService = videoSaveService
+        self.templateLibraryService = templateLibraryService
+        self.l10n = l10n
+        self.templates = TemplateCatalog.templates
+    }
+
+    var pickerSelectionLimit: Int {
+        SelectionRules.pickerLimit(for: selectedTemplate)
     }
 
     var validationMessage: String? {
-        SelectionRules.validationMessage(for: selectedItems.count)
+        guard let selectedTemplate else {
+            return nil
+        }
+
+        return selectedTemplate.validationMessage(for: selectedItems.count)
     }
 
     var selectionSummary: String {
-        "\(selectedItems.count)장 선택"
+        guard let selectedTemplate else {
+            return "템플릿을 선택해주세요"
+        }
+
+        if selectedTemplate.usesSelectionCount {
+            if let maximumSelectionCount = selectedTemplate.maximumSelectionCount {
+                return "\(selectedItems.count)/\(maximumSelectionCount)장 선택"
+            }
+
+            return "\(selectedItems.count)장 선택"
+        }
+
+        return "\(selectedItems.count)/\(selectedTemplate.photoCount)장 선택"
+    }
+
+    func localizedSelectionSummary(using l10n: L10n = L10n()) -> String {
+        guard let selectedTemplate else {
+            return l10n.chooseTemplateFirst
+        }
+
+        let unit = l10n.language == .korean ? "개" : selectedItems.count == 1 ? "item" : "items"
+        if selectedTemplate.usesSelectionCount {
+            if let maximumSelectionCount = selectedTemplate.maximumSelectionCount {
+                return "\(selectedItems.count)/\(maximumSelectionCount) \(unit)"
+            }
+
+            return "\(selectedItems.count) \(unit)"
+        }
+
+        return "\(selectedItems.count)/\(selectedTemplate.photoCount) \(unit)"
     }
 
     var estimatedDurationText: String {
-        let duration = ClipDurationPolicy.totalDuration(for: selectedItems.map(\.kind))
-        return String(format: "예상 길이 %.1f초", duration)
+        guard let selectedTemplate else {
+            return "템플릿을 먼저 고르면 예상 길이를 보여드려요."
+        }
+
+        if selectedTemplate.usesSelectionCount {
+            guard !selectedItems.isEmpty else {
+                return selectedTemplate.dynamicDurationHint ?? "선택한 모든 사진 길이를 자동으로 맞춰드려요."
+            }
+
+            return String(format: "예상 길이 %.1f초", selectedTemplate.totalDuration(for: selectedItems.count))
+        }
+
+        return String(format: "예상 길이 %.1f초", selectedTemplate.totalDuration)
+    }
+
+    func localizedEstimatedDurationText(using l10n: L10n = L10n()) -> String {
+        guard let selectedTemplate else {
+            return l10n.language == .korean ? "템플릿을 먼저 고르면 예상 길이를 보여드려요." : "Choose a template to see the estimated duration."
+        }
+
+        if selectedTemplate.usesSelectionCount && selectedItems.isEmpty {
+            return l10n.language == .korean
+                ? selectedTemplate.dynamicDurationHint ?? "선택한 미디어 길이를 자동으로 맞춰드려요."
+                : "The selected media timing will be arranged automatically."
+        }
+
+        let duration = selectedTemplate.usesSelectionCount ? selectedTemplate.totalDuration(for: selectedItems.count) : selectedTemplate.totalDuration
+        return l10n.language == .korean ? String(format: "예상 길이 %.1f초", duration) : String(format: "Estimated %.1fs", duration)
     }
 
     var canGenerate: Bool {
-        validationMessage == nil && !selectedItems.isEmpty && !isGenerating
+        selectedTemplate != nil && validationMessage == nil && !selectedItems.isEmpty && !isGenerating
+    }
+
+    var canOpenPicker: Bool {
+        selectedTemplate != nil && !isGenerating
+    }
+
+    var selectedAssetIdentifiers: [String] {
+        selectedItems.map(\.assetLocalIdentifier)
     }
 
     var generatedVideo: GeneratedVideo? {
@@ -61,12 +150,48 @@ final class AutoPhotosViewModel: ObservableObject {
             return video
         }
 
-        return cachedGeneratedVideo
+        guard let selectedTemplate else {
+            return nil
+        }
+
+        return renderedVideos[cacheKey(for: selectedTemplate.previewRenderOptions)]
     }
 
     var currentErrorMessage: String? {
         if case let .error(message) = generationState {
             return message
+        }
+
+        return nil
+    }
+
+    var exportSectionNote: String? {
+        guard let selectedTemplate else {
+            return nil
+        }
+
+        if selectedTemplate.supportsMusic && !selectedTemplate.isMusicAvailable {
+            return "템플릿 BGM 파일을 다시 연결하면 노래 옵션이 자동으로 활성화돼요."
+        }
+
+        if !selectedTemplate.supportsText {
+            return "이 템플릿은 텍스트 오버레이 없이 출력돼요."
+        }
+
+        return nil
+    }
+
+    func localizedExportSectionNote(using l10n: L10n = L10n()) -> String? {
+        guard let selectedTemplate else {
+            return nil
+        }
+
+        if selectedTemplate.supportsMusic && !selectedTemplate.isMusicAvailable {
+            return l10n.templateBGMUnavailable
+        }
+
+        if !selectedTemplate.supportsText {
+            return l10n.textUnavailable
         }
 
         return nil
@@ -80,7 +205,107 @@ final class AutoPhotosViewModel: ObservableObject {
         return false
     }
 
+    func selectTemplate(_ template: VideoTemplate) {
+        let shouldResetSelection = selectedTemplate?.id != template.id
+
+        selectedTemplate = template
+        cinematicTextCustomization = template.defaultCinematicTextCustomization
+        exportOptions = template.previewRenderOptions
+        toastMessage = nil
+        alertInfo = nil
+
+        if shouldResetSelection {
+            selectedItems = []
+            generationState = .idle
+            pickerResetToken = UUID()
+            cleanupRenderedVideos()
+        }
+    }
+
+    func saveCustomTemplate(from draft: TemplateDraft) throws {
+        let normalizedTitle = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            throw TemplateDraftError.emptyTitle
+        }
+
+        guard (1...SelectionRules.librarySelectionUpperBound).contains(draft.photoCount) else {
+            throw TemplateDraftError.invalidPhotoCount
+        }
+
+        let clipDurations = draft.parsedClipDurations
+        guard clipDurations.count == draft.photoCount else {
+            throw TemplateDraftError.invalidClipDurations(expected: draft.photoCount, actual: clipDurations.count)
+        }
+
+        guard clipDurations.allSatisfy({ $0 > 0 }) else {
+            throw TemplateDraftError.nonPositiveDuration
+        }
+
+        let audioTrack: TemplateAudioTrack?
+        if let audioImportURL = draft.audioImportURL {
+            audioTrack = try templateLibraryService.importAudioTrack(from: audioImportURL)
+        } else {
+            audioTrack = draft.existingAudioTrack
+        }
+
+        let textOverlay: TemplateTextOverlay?
+        if draft.includesText {
+            guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw TemplateDraftError.emptyText
+            }
+
+            guard draft.textEndTime > draft.textStartTime else {
+                throw TemplateDraftError.invalidTextTiming
+            }
+
+            textOverlay = TemplateTextOverlay(
+                text: draft.text,
+                startTime: draft.textStartTime,
+                endTime: draft.textEndTime,
+                fontName: draft.fontName,
+                fontSize: draft.fontSize,
+                position: TemplateTextPosition(x: draft.textPositionX, y: draft.textPositionY)
+            )
+        } else {
+            textOverlay = nil
+        }
+
+        let template = VideoTemplate(
+            id: draft.templateID ?? "custom-\(UUID().uuidString)",
+            name: normalizedTitle,
+            tagline: "\(draft.photoCount)컷 커스텀 템플릿",
+            description: draft.summaryDescription,
+            photoCount: draft.photoCount,
+            clipDurations: clipDurations,
+            audioTrack: audioTrack,
+            textOverlay: textOverlay,
+            theme: .brandDefault
+        )
+
+        try templateLibraryService.saveCustomTemplate(template)
+        refreshTemplates()
+        selectTemplate(template)
+    }
+
+    func deleteCustomTemplate(_ template: VideoTemplate) throws {
+        guard template.isCustomTemplate else {
+            return
+        }
+
+        try templateLibraryService.deleteCustomTemplate(id: template.id)
+        refreshTemplates()
+
+        if selectedTemplate?.id == template.id {
+            resetToHome()
+        }
+    }
+
     func handlePickerResults(_ results: [PHPickerResult]) async {
+        guard let selectedTemplate else {
+            alertInfo = AlertInfo(title: l10n.templateSelectionTitle, message: userMessage(for: AutoPhotosError.templateMissing))
+            return
+        }
+
         guard !results.isEmpty else {
             if selectedItems.isEmpty {
                 generationState = .idle
@@ -103,7 +328,10 @@ final class AutoPhotosViewModel: ObservableObject {
             }
 
             let resolvedItems = try await photoLibraryService.resolveSelection(from: identifiers)
-            applyResolvedSelection(resolvedItems)
+            let limitedItems = selectedTemplate.usesSelectionCount
+                ? Array(resolvedItems.prefix(selectedTemplate.maximumSelectionCount ?? resolvedItems.count))
+                : Array(resolvedItems.prefix(selectedTemplate.photoCount))
+            applyResolvedSelection(limitedItems)
         } catch is CancellationError {
             return
         } catch {
@@ -130,7 +358,7 @@ final class AutoPhotosViewModel: ObservableObject {
     }
 
     func applyResolvedSelection(_ items: [SelectedMediaItem]) {
-        selectedItems = items.sorted { $0.selectionIndex < $1.selectionIndex }
+        selectedItems = reindexed(items.sorted { $0.selectionIndex < $1.selectionIndex })
         toastMessage = nil
         alertInfo = nil
 
@@ -141,25 +369,74 @@ final class AutoPhotosViewModel: ObservableObject {
         }
     }
 
+    func moveItem(_ draggedItem: SelectedMediaItem, before targetItem: SelectedMediaItem) {
+        guard draggedItem.id != targetItem.id else {
+            return
+        }
+
+        guard
+            let sourceIndex = selectedItems.firstIndex(where: { $0.id == draggedItem.id }),
+            let destinationIndex = selectedItems.firstIndex(where: { $0.id == targetItem.id })
+        else {
+            return
+        }
+
+        var updatedItems = selectedItems
+        let movingItem = updatedItems.remove(at: sourceIndex)
+        let insertionIndex = destinationIndex > sourceIndex ? max(destinationIndex - 1, 0) : destinationIndex
+        updatedItems.insert(movingItem, at: insertionIndex)
+        selectedItems = reindexed(updatedItems)
+    }
+
+    func moveItemToEnd(_ item: SelectedMediaItem) {
+        guard let sourceIndex = selectedItems.firstIndex(where: { $0.id == item.id }) else {
+            return
+        }
+
+        var updatedItems = selectedItems
+        let movingItem = updatedItems.remove(at: sourceIndex)
+        updatedItems.append(movingItem)
+        selectedItems = reindexed(updatedItems)
+    }
+
+    func removeItem(_ item: SelectedMediaItem) {
+        selectedItems.removeAll { $0.id == item.id }
+        selectedItems = reindexed(selectedItems)
+
+        if selectedItems.isEmpty {
+            generationState = .idle
+        } else if case .preview = generationState {
+            generationState = .selectionReview
+        }
+
+        cleanupRenderedVideos()
+        toastMessage = nil
+    }
+
     func handleSelectionResolutionFailure(_ error: Error) {
         selectedItems = []
         recoveryDestination = .home
-        generationState = .error(message: error.localizedDescription)
+        generationState = .error(message: userMessage(for: error))
         pickerResetToken = UUID()
     }
 
     func startGeneration() {
+        guard let selectedTemplate else {
+            alertInfo = AlertInfo(title: l10n.templateSelectionTitle, message: userMessage(for: AutoPhotosError.templateMissing))
+            return
+        }
+
         guard canGenerate else {
             alertInfo = AlertInfo(
-                title: "선택 확인",
-                message: validationMessage ?? "영상 생성을 시작할 수 없어요."
+                title: l10n.selectionConfirmationTitle,
+                message: localizedValidationMessage(using: l10n) ?? userMessage(for: AutoPhotosError.invalidSelection)
             )
             return
         }
 
         toastMessage = nil
         alertInfo = nil
-        cleanupCachedVideo()
+        cleanupRenderedVideos()
 
         generationTask?.cancel()
         generationTask = Task { [weak self] in
@@ -167,7 +444,12 @@ final class AutoPhotosViewModel: ObservableObject {
 
             do {
                 let video = try await videoGenerationService.generateVideo(
-                    from: selectedItems,
+                    from: VideoGenerationRequest(
+                        items: selectedItems,
+                        template: selectedTemplate,
+                        renderOptions: selectedTemplate.previewRenderOptions,
+                        cinematicTextCustomization: cinematicTextCustomization
+                    ),
                     progress: { [weak self] step in
                         Task { @MainActor in
                             self?.generationState = .generating(step: step)
@@ -179,13 +461,14 @@ final class AutoPhotosViewModel: ObservableObject {
                     return
                 }
 
-                cachedGeneratedVideo = video
+                storeRenderedVideo(video)
+                exportOptions = selectedTemplate.previewRenderOptions
                 generationState = .preview(video)
             } catch is CancellationError {
                 generationState = selectedItems.isEmpty ? .idle : .selectionReview
             } catch {
                 recoveryDestination = .selectionReview
-                generationState = .error(message: error.localizedDescription)
+                generationState = .error(message: userMessage(for: error))
             }
         }
     }
@@ -197,20 +480,66 @@ final class AutoPhotosViewModel: ObservableObject {
         generationState = selectedItems.isEmpty ? .idle : .selectionReview
     }
 
-    func saveGeneratedVideo() async {
-        guard case let .preview(video) = generationState else {
+    func updateExportMusicOption(_ enabled: Bool) {
+        guard selectedTemplate?.isMusicAvailable == true else {
+            exportOptions.includesMusic = false
             return
+        }
+
+        exportOptions.includesMusic = enabled
+    }
+
+    func updateExportTextOption(_ enabled: Bool) {
+        guard selectedTemplate?.supportsText == true else {
+            exportOptions.includesText = false
+            return
+        }
+
+        exportOptions.includesText = enabled
+    }
+
+    func updateCinematicTextCustomization(_ customization: TemplateCinematicTextCustomization) {
+        cinematicTextCustomization = customization
+    }
+
+    @discardableResult
+    func saveGeneratedVideo() async -> Bool {
+        guard case .preview = generationState else {
+            return false
         }
 
         isSaving = true
         defer { isSaving = false }
 
         do {
-            try await videoSaveService.saveVideo(at: video.url)
-            toastMessage = "사진 앱에 저장했어요."
+            let outputVideo = try await video(for: exportOptions)
+            try await videoSaveService.saveVideo(at: outputVideo.url)
+            toastMessage = l10n.saveSuccessMessage
+            return true
         } catch {
-            alertInfo = AlertInfo(title: "저장 실패", message: error.localizedDescription)
+            alertInfo = AlertInfo(title: l10n.saveFailureTitle, message: userMessage(for: error))
+            return false
         }
+    }
+
+    func prepareShareVideo() async {
+        guard case .preview = generationState else {
+            return
+        }
+
+        isSharing = true
+        defer { isSharing = false }
+
+        do {
+            let outputVideo = try await video(for: exportOptions)
+            shareSheetPayload = ShareSheetPayload(url: outputVideo.url)
+        } catch {
+            alertInfo = AlertInfo(title: l10n.shareFailureTitle, message: userMessage(for: error))
+        }
+    }
+
+    func dismissShareSheet() {
+        shareSheetPayload = nil
     }
 
     func returnToSelectionReview() {
@@ -222,30 +551,141 @@ final class AutoPhotosViewModel: ObservableObject {
         generationTask?.cancel()
         generationTask = nil
         videoGenerationService.cancelGeneration()
+        selectedTemplate = nil
+        cinematicTextCustomization = nil
         selectedItems = []
+        exportOptions = .none
         generationState = .idle
         toastMessage = nil
         alertInfo = nil
+        shareSheetPayload = nil
         pickerResetToken = UUID()
-        cleanupCachedVideo()
+        cleanupRenderedVideos()
     }
 
     func recoverFromError() {
         switch recoveryDestination {
         case .home:
-            resetToHome()
+            selectedTemplate = nil
+            cinematicTextCustomization = nil
+            generationState = .idle
         case .selectionReview:
             generationState = selectedItems.isEmpty ? .idle : .selectionReview
         }
     }
 
-    private func cleanupCachedVideo() {
-        guard let cachedGeneratedVideo else {
-            return
+    private func video(for options: VideoRenderOptions) async throws -> GeneratedVideo {
+        if let cachedVideo = renderedVideos[cacheKey(for: options)] {
+            return cachedVideo
         }
 
-        try? FileManager.default.removeItem(at: cachedGeneratedVideo.url)
-        self.cachedGeneratedVideo = nil
+        guard let selectedTemplate else {
+            throw AutoPhotosError.templateMissing
+        }
+
+        guard validationMessage == nil else {
+            throw AutoPhotosError.invalidSelection
+        }
+
+        let renderedVideo = try await videoGenerationService.generateVideo(
+            from: VideoGenerationRequest(
+                items: selectedItems,
+                template: selectedTemplate,
+                renderOptions: options,
+                cinematicTextCustomization: cinematicTextCustomization
+            ),
+            progress: { _ in }
+        )
+        storeRenderedVideo(renderedVideo)
+        return renderedVideo
+    }
+
+    private func storeRenderedVideo(_ video: GeneratedVideo) {
+        renderedVideos[cacheKey(for: video.renderOptions)] = video
+    }
+
+    private func userMessage(for error: Error) -> String {
+        if let autoPhotosError = error as? AutoPhotosError {
+            return autoPhotosError.userMessage(using: l10n)
+        }
+
+        return error.localizedDescription
+    }
+
+    func localizedValidationMessage(using l10n: L10n = L10n()) -> String? {
+        guard let template = selectedTemplate, validationMessage != nil else {
+            return validationMessage
+        }
+
+        let count = selectedItems.count
+        let isKorean = l10n.language == .korean
+
+        if template.usesSelectionCount, let minimumPhotoCount = template.minimumPhotoCount, count < minimumPhotoCount {
+            return isKorean
+                ? "최소 \(minimumPhotoCount)개의 미디어를 선택해주세요. 현재 \(count)개"
+                : "Choose at least \(minimumPhotoCount) media items. Currently selected: \(count)."
+        }
+
+        if template.usesSelectionCount, let maximumPhotoCount = template.maximumSelectionCount, count > maximumPhotoCount {
+            return isKorean
+                ? "최대 \(maximumPhotoCount)개의 미디어를 사용할 수 있어요."
+                : "Choose up to \(maximumPhotoCount) media items."
+        }
+
+        if !template.usesSelectionCount, count < template.photoCount {
+            return isKorean
+                ? "\(template.photoCount)개 중 \(count)개 선택됨"
+                : "\(count) of \(template.photoCount) media items selected."
+        }
+
+        if !template.usesSelectionCount, count > template.photoCount {
+            return isKorean
+                ? "최대 \(template.photoCount)개의 미디어를 사용할 수 있어요."
+                : "Choose up to \(template.photoCount) media items."
+        }
+
+        return validationMessage
+    }
+
+    private func cacheKey(for options: VideoRenderOptions) -> VideoRenderCacheKey {
+        VideoRenderCacheKey(
+            options: options,
+            cinematicTextCustomization: cinematicTextCustomization
+        )
+    }
+
+    private func cleanupRenderedVideos() {
+        let urls = Set(renderedVideos.values.map(\.url))
+
+        for url in urls {
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        renderedVideos.removeAll()
+    }
+
+    private func reindexed(_ items: [SelectedMediaItem]) -> [SelectedMediaItem] {
+        items.enumerated().map { index, item in
+            SelectedMediaItem(
+                id: item.id,
+                assetLocalIdentifier: item.assetLocalIdentifier,
+                kind: item.kind,
+                selectionIndex: index,
+                creationDate: item.creationDate,
+                thumbnail: item.thumbnail
+            )
+        }
+    }
+
+    private func refreshTemplates() {
+        templates = TemplateCatalog.templates
+    }
+
+    private static func mergeTemplates(
+        builtInTemplates: [VideoTemplate],
+        customTemplates: [VideoTemplate]
+    ) -> [VideoTemplate] {
+        builtInTemplates + customTemplates
     }
 }
 
@@ -259,7 +699,8 @@ enum AppBootstrap {
         return AutoPhotosViewModel(
             photoLibraryService: DefaultPhotoLibraryService(),
             videoGenerationService: DefaultVideoGenerationService(),
-            videoSaveService: DefaultVideoSaveService()
+            videoSaveService: DefaultVideoSaveService(),
+            templateLibraryService: DefaultTemplateLibraryService()
         )
     }
 
@@ -293,38 +734,40 @@ enum AppBootstrap {
         let viewModel = AutoPhotosViewModel(
             photoLibraryService: StubPhotoLibraryService(),
             videoGenerationService: StubVideoGenerationService(),
-            videoSaveService: StubVideoSaveService()
+            videoSaveService: StubVideoSaveService(),
+            templateLibraryService: StubTemplateLibraryService()
         )
+
+        let template = TemplateCatalog.templates.first(where: { !$0.usesSelectionCount }) ?? TemplateCatalog.templates[0]
 
         switch scenario {
         case .home:
             viewModel.generationState = .idle
         case .invalidSelection:
+            viewModel.selectTemplate(template)
             viewModel.applyResolvedSelection([
                 SelectedMediaItem.preview(index: 0, kind: .photo, color: .systemPink),
                 SelectedMediaItem.preview(index: 1, kind: .livePhoto, color: .systemOrange),
+                SelectedMediaItem.preview(index: 2, kind: .photo, color: .systemBlue),
             ])
         case .generating:
-            viewModel.applyResolvedSelection([
-                SelectedMediaItem.preview(index: 0, kind: .photo, color: .systemPink),
-                SelectedMediaItem.preview(index: 1, kind: .photo, color: .systemOrange),
-                SelectedMediaItem.preview(index: 2, kind: .livePhoto, color: .systemBlue),
-            ])
+            viewModel.selectTemplate(template)
+            viewModel.applyResolvedSelection(makePreviewSelection(count: template.photoCount))
             viewModel.generationState = .generating(step: .composing)
         case .preview:
-            viewModel.applyResolvedSelection([
-                SelectedMediaItem.preview(index: 0, kind: .photo, color: .systemPink),
-                SelectedMediaItem.preview(index: 1, kind: .photo, color: .systemOrange),
-                SelectedMediaItem.preview(index: 2, kind: .livePhoto, color: .systemBlue),
-            ])
+            viewModel.selectTemplate(template)
+            viewModel.applyResolvedSelection(makePreviewSelection(count: template.photoCount))
             let previewURL = FileManager.default.temporaryDirectory.appendingPathComponent("ui-test-preview.mp4")
-            viewModel.generationState = .preview(GeneratedVideo(url: previewURL, duration: 4.0))
+            viewModel.generationState = .preview(
+                GeneratedVideo(
+                    url: previewURL,
+                    duration: template.totalDuration,
+                    renderOptions: template.previewRenderOptions
+                )
+            )
         case .error:
-            viewModel.applyResolvedSelection([
-                SelectedMediaItem.preview(index: 0, kind: .photo, color: .systemPink),
-                SelectedMediaItem.preview(index: 1, kind: .photo, color: .systemOrange),
-                SelectedMediaItem.preview(index: 2, kind: .livePhoto, color: .systemBlue),
-            ])
+            viewModel.selectTemplate(template)
+            viewModel.applyResolvedSelection(makePreviewSelection(count: template.photoCount))
             viewModel.generationState = .error(message: "영상 생성에 실패했어요. 다시 시도해주세요.")
         }
 
@@ -338,14 +781,32 @@ private struct StubPhotoLibraryService: PhotoLibraryService {
     }
 }
 
+private struct StubTemplateLibraryService: TemplateLibraryService {
+    func loadCustomTemplates() -> [VideoTemplate] {
+        []
+    }
+
+    func saveCustomTemplate(_ template: VideoTemplate) throws {}
+
+    func deleteCustomTemplate(id: String) throws {}
+
+    func importAudioTrack(from sourceURL: URL) throws -> TemplateAudioTrack {
+        .imported(title: sourceURL.deletingPathExtension().lastPathComponent, resourceName: "stub-audio", fileExtension: "m4a")
+    }
+}
+
 private final class StubVideoGenerationService: VideoGenerationService {
     func generateVideo(
-        from items: [SelectedMediaItem],
+        from request: VideoGenerationRequest,
         progress: @escaping @Sendable (GenerationStep) -> Void
     ) async throws -> GeneratedVideo {
         progress(.preparing)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("stub-preview.mp4")
-        return GeneratedVideo(url: url, duration: 3.0)
+        return GeneratedVideo(
+            url: url,
+            duration: request.template.totalDuration,
+            renderOptions: request.renderOptions
+        )
     }
 
     func cancelGeneration() {}
@@ -362,6 +823,21 @@ private extension SelectedMediaItem {
             kind: kind,
             selectionIndex: index,
             thumbnail: .solidColor(color)
+        )
+    }
+}
+
+private func makePreviewSelection(count: Int) -> [SelectedMediaItem] {
+    let palette: [UIColor] = [
+        .systemPink, .systemOrange, .systemBlue, .systemTeal, .systemGreen,
+        .systemPurple, .systemYellow, .systemIndigo, .systemMint, .systemRed,
+    ]
+
+    return (0..<count).map { index in
+        SelectedMediaItem.preview(
+            index: index,
+            kind: index.isMultiple(of: 3) ? .livePhoto : .photo,
+            color: palette[index % palette.count]
         )
     }
 }
