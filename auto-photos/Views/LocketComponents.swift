@@ -130,6 +130,22 @@ struct LocketTemplateCard: View {
                         .minimumScaleFactor(0.88)
                 }
                 .padding(16)
+
+                if template.isPremium {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Text("PRO")
+                                .font(LocketTheme.sans(10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(LocketTheme.accent, in: Capsule())
+                                .padding(10)
+                        }
+                        Spacer()
+                    }
+                }
             }
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: LocketTheme.cardRadius, style: .continuous))

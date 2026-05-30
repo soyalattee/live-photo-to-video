@@ -24,24 +24,23 @@ struct auto_photosTests {
     func locketTemplateCardsKeepCurrentTemplateNames() {
         #expect(TemplateCatalog.templates.map(\.name).contains("Lock Screen Log"))
         #expect(TemplateCatalog.templates.map(\.name).contains("Life Fraems"))
-        #expect(TemplateCatalog.templates.map(\.name).contains("All Photos Flow"))
         #expect(!TemplateCatalog.templates.map(\.name).contains("Life in Fraems"))
     }
 
-    @Test("홈 경험은 내장 템플릿 다섯 개만 제공한다")
+    @Test("홈 경험은 내장 템플릿 세 개만 제공한다")
     func homeExperienceUsesOnlyBuiltInTemplates() {
-        #expect(TemplateCatalog.templates.count == 5)
+        #expect(TemplateCatalog.templates.count == 3)
         #expect(TemplateCatalog.templates.allSatisfy { !$0.isCustomTemplate })
     }
 
-    @Test("ViewModel 홈 템플릿은 저장된 커스텀 템플릿이 있어도 내장 다섯 개만 노출한다")
+    @Test("ViewModel 홈 템플릿은 저장된 커스텀 템플릿이 있어도 내장 세 개만 노출한다")
     func viewModelHomeTemplatesIgnoreCustomTemplates() {
         let viewModel = makeViewModel(
             templateLibraryService: MockTemplateLibraryService(customTemplates: [makeCustomTemplate()])
         )
 
         #expect(viewModel.templates.map(\.id) == TemplateCatalog.templates.map(\.id))
-        #expect(viewModel.templates.count == 5)
+        #expect(viewModel.templates.count == 3)
         #expect(viewModel.templates.allSatisfy { !$0.isCustomTemplate })
     }
 
@@ -126,6 +125,7 @@ struct auto_photosTests {
             videoGenerationService: generator,
             videoSaveService: MockVideoSaveService(error: AutoPhotosError.saveFailed),
             templateLibraryService: MockTemplateLibraryService(),
+            subscriptionService: MockSubscriptionService(isSubscribed: true),
             l10n: L10n(language: .english)
         )
 
@@ -408,6 +408,7 @@ struct auto_photosTests {
             videoGenerationService: generator,
             videoSaveService: saver,
             templateLibraryService: MockTemplateLibraryService(),
+            subscriptionService: MockSubscriptionService(isSubscribed: true),
             l10n: L10n(language: .korean)
         )
 
@@ -518,15 +519,63 @@ struct auto_photosTests {
         #expect(template.cinematicIntro?.icons.isEmpty == true)
     }
 
-    @Test("기본 카탈로그는 승인된 다섯 가지 템플릿만 노출한다")
+    @Test("기본 카탈로그는 승인된 세 가지 템플릿만 노출한다")
     func templateCatalogOnlyShowsApprovedTemplates() {
         #expect(TemplateCatalog.templates.map(\.id) == [
             "restaurant-recommendation",
-            "restaurant-short-form",
             "lock-screen-log",
             "life-in-fraems",
-            "all-photos-flow",
         ])
+    }
+
+    @Test("프리미엄 템플릿은 lockScreenLog와 lifeInFraems이다")
+    func premiumTemplatesAreCorrectlyMarked() {
+        #expect(VideoTemplate.lockScreenLog.isPremium)
+        #expect(VideoTemplate.lifeInFraems.isPremium)
+        #expect(!VideoTemplate.restaurantRecommendation.isPremium)
+    }
+
+    @Test("구독 미가입 상태에서 프리미엄 템플릿 선택 시 페이월이 표시된다")
+    func paywallIsShownWhenSelectingPremiumTemplateWithoutSubscription() {
+        let viewModel = makeViewModel(subscriptionService: MockSubscriptionService(isSubscribed: false))
+
+        viewModel.selectTemplate(.lockScreenLog)
+
+        #expect(viewModel.showingPaywall == true)
+        #expect(viewModel.selectedTemplate == nil)
+    }
+
+    @Test("구독 중인 상태에서 프리미엄 템플릿은 바로 선택된다")
+    func premiumTemplateIsAccessibleWhenSubscribed() {
+        let viewModel = makeViewModel(subscriptionService: MockSubscriptionService(isSubscribed: true))
+
+        viewModel.selectTemplate(.lockScreenLog)
+
+        #expect(viewModel.showingPaywall == false)
+        #expect(viewModel.selectedTemplate?.id == VideoTemplate.lockScreenLog.id)
+    }
+
+    @Test("무료 템플릿은 구독 여부와 상관없이 바로 선택된다")
+    func freeTemplateSelectsWithoutPaywall() {
+        let viewModel = makeViewModel(subscriptionService: MockSubscriptionService(isSubscribed: false))
+
+        viewModel.selectTemplate(.restaurantRecommendation)
+
+        #expect(viewModel.showingPaywall == false)
+        #expect(viewModel.selectedTemplate?.id == VideoTemplate.restaurantRecommendation.id)
+    }
+
+    @Test("구독 성공 시 페이월이 닫히고 isSubscribed가 true가 된다")
+    func subscriptionSuccessClosesPaywallAndUpdatesState() async {
+        let subscriptionService = MockSubscriptionService(isSubscribed: false)
+        let viewModel = makeViewModel(subscriptionService: subscriptionService)
+
+        viewModel.showingPaywall = true
+        subscriptionService.isSubscribed = true
+        subscriptionService.statusCallback?(true)
+
+        #expect(viewModel.isSubscribed == true)
+        #expect(viewModel.showingPaywall == false)
     }
 
     @Test("All Photos Flow는 Saltair Drive 번들 오디오를 사용한다")
@@ -559,7 +608,7 @@ struct auto_photosTests {
         )
 
         #expect(converted == CGRect(x: 80, y: 328, width: 920, height: 74))
-        #expect(TemplateLockScreenOverlay.videoLayerY(fromTopLeftCenterY: 1756.8, renderHeight: 1920) == 163.2)
+        #expect(TemplateLockScreenOverlay.videoLayerY(fromTopLeftCenterY: 1756.5, renderHeight: 1920) == 163.5)
     }
 
     @Test("잠금화면 날짜와 하단 문구는 폰트가 잘리지 않도록 여유 높이를 사용한다")
@@ -646,6 +695,7 @@ private func makeViewModel(
         GeneratedVideo(url: tempURL("default"), duration: VideoTemplate.lifeInFraems.totalDuration, renderOptions: VideoTemplate.lifeInFraems.previewRenderOptions)
     )),
     templateLibraryService: MockTemplateLibraryService = MockTemplateLibraryService(),
+    subscriptionService: MockSubscriptionService = MockSubscriptionService(isSubscribed: true),
     l10n: L10n = L10n()
 ) -> AutoPhotosViewModel {
     AutoPhotosViewModel(
@@ -653,8 +703,25 @@ private func makeViewModel(
         videoGenerationService: generator,
         videoSaveService: MockVideoSaveService(),
         templateLibraryService: templateLibraryService,
+        subscriptionService: subscriptionService,
         l10n: l10n
     )
+}
+
+private final class MockSubscriptionService: SubscriptionService {
+    var isSubscribed: Bool
+    var statusCallback: (@MainActor (Bool) -> Void)?
+
+    init(isSubscribed: Bool) {
+        self.isSubscribed = isSubscribed
+    }
+
+    func startMonitoring(onStatusChange: @escaping @MainActor (Bool) -> Void) {
+        statusCallback = onStatusChange
+    }
+
+    func purchase() async throws {}
+    func restorePurchases() async throws {}
 }
 
 private final class MockPhotoLibraryService: PhotoLibraryService {

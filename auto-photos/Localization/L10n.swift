@@ -64,6 +64,22 @@ struct L10n: Sendable {
     var templateBGMUnavailable: String { language == .korean ? "템플릿 BGM 파일을 다시 연결하면 BGM 옵션이 자동으로 활성화돼요." : "Reconnect the template BGM file to enable the music option." }
     var textUnavailable: String { language == .korean ? "이 템플릿은 텍스트 오버레이 없이 출력돼요." : "This template exports without text overlays." }
 
+    var paywallTitle: String { language == .korean ? "Locket PRO" : "Locket PRO" }
+    var paywallSubtitle: String { language == .korean ? "오늘을 더 감각적으로" : "Elevate your memories" }
+    var paywallBenefit1Title: String { language == .korean ? "프리미엄 템플릿" : "Premium Templates" }
+    var paywallBenefit1Description: String { language == .korean ? "Lock Screen Log, Life Fraems를 자유롭게" : "Unlock Lock Screen Log & Life Fraems" }
+    var paywallBenefit2Title: String { language == .korean ? "워터마크 없이 저장" : "Save Without Watermark" }
+    var paywallBenefit2Description: String { language == .korean ? "영상에 로고 없이 깔끔하게 저장돼요" : "Your videos export clean, without a logo" }
+    var paywallBenefit3Title: String { language == .korean ? "광고 없이 바로 저장" : "Save Without Ads" }
+    var paywallBenefit3Description: String { language == .korean ? "광고 시청 없이 바로 다운로드" : "Download instantly, no ad to watch" }
+    var paywallPriceCaption: String { language == .korean ? "주 $1.99 · 자동 갱신 · 언제든 취소 가능" : "$1.99/week · Auto-renews · Cancel anytime" }
+    var paywallSubscribeButton: String { language == .korean ? "구독 시작하기" : "Subscribe Now" }
+    var paywallRestoreButton: String { language == .korean ? "이미 구독 중이세요? 복원하기" : "Already subscribed? Restore" }
+    var purchaseFailedTitle: String { language == .korean ? "결제 실패" : "Purchase Failed" }
+    var restoreFailedTitle: String { language == .korean ? "복원 실패" : "Restore Failed" }
+    var noSubscriptionFound: String { language == .korean ? "활성 구독이 없어요." : "No active subscription found." }
+    var subscriptionPendingMessage: String { language == .korean ? "결제 승인 대기 중이에요. 잠시 후 다시 확인해주세요." : "Purchase is pending approval. Please try again later." }
+
     func templateTagline(for template: VideoTemplate) -> String {
         switch (language, template.id) {
         case (.english, "restaurant-recommendation"):

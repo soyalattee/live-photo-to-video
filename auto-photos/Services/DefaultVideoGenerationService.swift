@@ -437,9 +437,10 @@ final class DefaultVideoGenerationService: VideoGenerationService {
         )
         let frameOverlay = request.template.frameOverlay
         let lockScreenOverlay = request.renderOptions.includesText ? request.template.lockScreenOverlay : nil
+        let hasWatermark = request.renderOptions.appliesWatermark
 
         guard
-            shouldRenderBasicText || introEffect != nil || frameOverlay != nil || lockScreenOverlay != nil,
+            shouldRenderBasicText || introEffect != nil || frameOverlay != nil || lockScreenOverlay != nil || hasWatermark,
             let videoTrack = composition.tracks(withMediaType: .video).first
         else {
             return nil
@@ -500,6 +501,8 @@ final class DefaultVideoGenerationService: VideoGenerationService {
                 totalDuration: totalDuration
             )
         }
+
+        addWatermarkLayer(to: parentLayer)
 
         videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
             postProcessingAsVideoLayer: videoLayer,
@@ -595,6 +598,30 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             endProgress: endProgress
         )
         textLayer.add(opacityAnimation, forKey: "templateTextOpacity")
+    }
+
+    private func addWatermarkLayer(to parentLayer: CALayer) {
+        guard
+            let url = Bundle.main.url(forResource: "wartermark", withExtension: "png"),
+            let image = UIImage(contentsOfFile: url.path),
+            let cgImage = image.cgImage
+        else { return }
+
+        let size: CGFloat = 260
+        let margin: CGFloat = 56
+
+        let watermarkLayer = CALayer()
+        watermarkLayer.frame = CGRect(
+            x: renderSize.width - margin - size,
+            y: margin,
+            width: size,
+            height: size
+        )
+        watermarkLayer.contents = cgImage
+        watermarkLayer.contentsGravity = .resizeAspect
+        watermarkLayer.contentsScale = UIScreen.main.scale
+        watermarkLayer.opacity = 0.42
+        parentLayer.addSublayer(watermarkLayer)
     }
 
     private func addLockScreenLogOverlay(

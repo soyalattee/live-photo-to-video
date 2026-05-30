@@ -63,6 +63,17 @@ struct ContentView: View {
         .sheet(item: $viewModel.shareSheetPayload, onDismiss: viewModel.dismissShareSheet) { payload in
             ShareSheetView(items: [payload.url])
         }
+        .sheet(isPresented: $viewModel.showingPaywall) {
+            PaywallView(
+                l10n: l10n,
+                isSubscribed: viewModel.isSubscribed,
+                isPurchasing: viewModel.isPurchasing,
+                isRestoring: viewModel.isRestoringPurchases,
+                onSubscribe: { await viewModel.subscribe() },
+                onRestore: { await viewModel.restoreSubscription() },
+                onDismiss: { viewModel.showingPaywall = false }
+            )
+        }
     }
 
     @ViewBuilder

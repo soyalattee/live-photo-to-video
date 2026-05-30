@@ -62,6 +62,7 @@ struct SelectedMediaItem: Identifiable {
 struct VideoRenderOptions: Equatable, Hashable, Sendable {
     var includesMusic: Bool
     var includesText: Bool
+    var appliesWatermark: Bool = false
 
     static let none = VideoRenderOptions(includesMusic: false, includesText: false)
 }

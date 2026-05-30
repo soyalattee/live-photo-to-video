@@ -93,6 +93,7 @@ extension VideoTemplate {
             surface: ColorToken(red: 0.96, green: 0.92, blue: 0.95),
             backgroundTop: ColorToken(red: 0.99, green: 0.97, blue: 0.99),
             backgroundBottom: ColorToken(red: 0.91, green: 0.85, blue: 0.91)
-        )
+        ),
+        isPremium: true
     )
 }

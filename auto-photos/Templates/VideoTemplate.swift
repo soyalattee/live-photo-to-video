@@ -489,7 +489,7 @@ enum DynamicClipPattern: String, Codable, Equatable, Sendable {
     case rhythmFlex918
 }
 
-struct VideoTemplate: Codable, Identifiable, Equatable, Sendable { 
+struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let tagline: String
@@ -509,6 +509,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
     let frameOverlay: TemplateFrameOverlay?
     let lockScreenOverlay: TemplateLockScreenOverlay?
     let theme: TemplateTheme
+    let isPremium: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -530,6 +531,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         case frameOverlay
         case lockScreenOverlay
         case theme
+        case isPremium
     }
 
     init(
@@ -551,7 +553,8 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         cinematicIntro: TemplateCinematicIntroEffect? = nil,
         frameOverlay: TemplateFrameOverlay? = nil,
         lockScreenOverlay: TemplateLockScreenOverlay? = nil,
-        theme: TemplateTheme
+        theme: TemplateTheme,
+        isPremium: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -572,6 +575,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         self.frameOverlay = frameOverlay
         self.lockScreenOverlay = lockScreenOverlay
         self.theme = theme
+        self.isPremium = isPremium
     }
 
     init(from decoder: Decoder) throws {
@@ -595,6 +599,7 @@ struct VideoTemplate: Codable, Identifiable, Equatable, Sendable {
         frameOverlay = try container.decodeIfPresent(TemplateFrameOverlay.self, forKey: .frameOverlay)
         lockScreenOverlay = try container.decodeIfPresent(TemplateLockScreenOverlay.self, forKey: .lockScreenOverlay)
         theme = try container.decode(TemplateTheme.self, forKey: .theme)
+        isPremium = try container.decodeIfPresent(Bool.self, forKey: .isPremium) ?? false
     }
 
     var totalDuration: TimeInterval {

@@ -1,0 +1,51 @@
+{
+  "identifier" : "auto-photos-local",
+  "nonConsumableProducts" : [],
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_appStoreLocaleIdentifier" : "en_US",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "auto-photos-premium",
+      "localizations" : [],
+      "name" : "Auto Photos Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "1.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "auto-photos-weekly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlock premium templates, remove watermarks, and save without ads.",
+              "displayName" : "Weekly Premium",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "프리미엄 템플릿, 워터마크 없는 저장, 광고 없는 저장",
+              "displayName" : "주간 프리미엄",
+              "locale" : "ko"
+            }
+          ],
+          "productID" : "soya.auto-photos.weekly",
+          "recurringSubscriptionPeriod" : "P1W",
+          "referenceName" : "Weekly Premium",
+          "subscriptionGroupID" : "auto-photos-premium",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

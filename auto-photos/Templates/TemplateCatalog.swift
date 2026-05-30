@@ -10,10 +10,8 @@ import Foundation
 enum TemplateCatalog {
     static let templates: [VideoTemplate] = [
         .restaurantRecommendation,
-        .restaurantShortForm,
         .lockScreenLog,
         .lifeInFraems,
-        .allPhotosFlow,
     ]
 }
 
@@ -26,6 +24,7 @@ extension VideoTemplate {
         photoCount: 0,
         clipDurations: [],
         usesSelectionCount: true,
+        minimumPhotoCount: 1,
         leadingClipDurations: [1.5],
         repeatingClipDuration: 1.0,
         audioTrack: .bundled(title: "Tak Before Dawn", resourceName: "Tak Before Dawn", fileExtension: "wav"),
@@ -42,6 +41,7 @@ extension VideoTemplate {
             surface: ColorToken(red: 0.95, green: 0.95, blue: 0.95),
             backgroundTop: ColorToken(red: 0.98, green: 0.98, blue: 0.98),
             backgroundBottom: ColorToken(red: 0.82, green: 0.82, blue: 0.82)
-        )
+        ),
+        isPremium: true
     )
 }

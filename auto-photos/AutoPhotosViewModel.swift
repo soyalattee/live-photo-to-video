@@ -31,30 +31,52 @@ final class AutoPhotosViewModel: ObservableObject {
     @Published var isSharing = false
     @Published var isResolvingSelection = false
     @Published var pickerResetToken = UUID()
+    @Published var isSubscribed = false
+    @Published var showingPaywall = false
+    @Published var isPurchasing = false
+    @Published var isRestoringPurchases = false
 
     private let photoLibraryService: PhotoLibraryService
     private let videoGenerationService: VideoGenerationService
     private let videoSaveService: VideoSaveService
     private let templateLibraryService: TemplateLibraryService
+    private let subscriptionService: any SubscriptionService
+    private let rewardedAdService: any RewardedAdService
     private let l10n: L10n
 
     private var recoveryDestination: ErrorRecoveryDestination = .home
     private var generationTask: Task<Void, Never>?
     private var renderedVideos: [VideoRenderCacheKey: GeneratedVideo] = [:]
+    // True after the user watches a rewarded ad for the current preview; resets on home navigation.
+    private var adRewardedForCurrentPreview = false
 
     init(
         photoLibraryService: PhotoLibraryService,
         videoGenerationService: VideoGenerationService,
         videoSaveService: VideoSaveService,
         templateLibraryService: TemplateLibraryService,
+        subscriptionService: any SubscriptionService,
+        rewardedAdService: any RewardedAdService = NoOpRewardedAdService(),
         l10n: L10n = L10n()
     ) {
         self.photoLibraryService = photoLibraryService
         self.videoGenerationService = videoGenerationService
         self.videoSaveService = videoSaveService
         self.templateLibraryService = templateLibraryService
+        self.subscriptionService = subscriptionService
+        self.rewardedAdService = rewardedAdService
         self.l10n = l10n
         self.templates = TemplateCatalog.templates
+        self.isSubscribed = subscriptionService.isSubscribed
+
+        subscriptionService.startMonitoring { [weak self] subscribed in
+            self?.isSubscribed = subscribed
+            if subscribed {
+                self?.showingPaywall = false
+            }
+        }
+
+        Task { await rewardedAdService.loadAd() }
     }
 
     var pickerSelectionLimit: Int {
@@ -206,6 +228,15 @@ final class AutoPhotosViewModel: ObservableObject {
     }
 
     func selectTemplate(_ template: VideoTemplate) {
+        if template.isPremium && !isSubscribed {
+            showingPaywall = true
+            return
+        }
+
+        applyTemplateSelection(template)
+    }
+
+    private func applyTemplateSelection(_ template: VideoTemplate) {
         let shouldResetSelection = selectedTemplate?.id != template.id
 
         selectedTemplate = template
@@ -220,6 +251,57 @@ final class AutoPhotosViewModel: ObservableObject {
             pickerResetToken = UUID()
             cleanupRenderedVideos()
         }
+    }
+
+    func subscribe() async {
+        isPurchasing = true
+        defer { isPurchasing = false }
+
+        do {
+            try await subscriptionService.purchase()
+            isSubscribed = true
+            showingPaywall = false
+        } catch SubscriptionError.userCancelled {
+            // silent — user tapped cancel in App Store sheet
+        } catch SubscriptionError.purchasePending {
+            toastMessage = l10n.subscriptionPendingMessage
+            showingPaywall = false
+        } catch {
+            alertInfo = AlertInfo(
+                title: l10n.purchaseFailedTitle,
+                message: subscriptionErrorMessage(for: error)
+            )
+        }
+    }
+
+    func restoreSubscription() async {
+        isRestoringPurchases = true
+        defer { isRestoringPurchases = false }
+
+        do {
+            try await subscriptionService.restorePurchases()
+            isSubscribed = subscriptionService.isSubscribed
+            if isSubscribed {
+                showingPaywall = false
+            } else {
+                alertInfo = AlertInfo(
+                    title: l10n.restoreFailedTitle,
+                    message: l10n.noSubscriptionFound
+                )
+            }
+        } catch {
+            alertInfo = AlertInfo(
+                title: l10n.restoreFailedTitle,
+                message: subscriptionErrorMessage(for: error)
+            )
+        }
+    }
+
+    private func subscriptionErrorMessage(for error: Error) -> String {
+        if let subscriptionError = error as? SubscriptionError {
+            return subscriptionError.userMessage(using: l10n)
+        }
+        return error.localizedDescription
     }
 
     func saveCustomTemplate(from draft: TemplateDraft) throws {
@@ -504,15 +586,49 @@ final class AutoPhotosViewModel: ObservableObject {
 
     @discardableResult
     func saveGeneratedVideo() async -> Bool {
-        guard case .preview = generationState else {
-            return false
+        guard case .preview = generationState else { return false }
+
+        let needsAd = selectedTemplate?.isPremium == true && !isSubscribed && !adRewardedForCurrentPreview
+
+        if needsAd {
+            return await saveWithRewardedAd()
+        }
+
+        return await performSave(appliesWatermark: !isSubscribed && !adRewardedForCurrentPreview)
+    }
+
+    private func saveWithRewardedAd() async -> Bool {
+        if !rewardedAdService.isAdReady {
+            // Ad not ready — fall back to watermarked save
+            return await performSave(appliesWatermark: true)
         }
 
         isSaving = true
         defer { isSaving = false }
 
         do {
-            let outputVideo = try await video(for: exportOptions)
+            let earned = try await rewardedAdService.showAd()
+            if earned {
+                adRewardedForCurrentPreview = true
+                return await performSave(appliesWatermark: false)
+            } else {
+                return await performSave(appliesWatermark: true)
+            }
+        } catch {
+            // Ad failed — fall back to watermarked save
+            return await performSave(appliesWatermark: true)
+        }
+    }
+
+    private func performSave(appliesWatermark: Bool) async -> Bool {
+        isSaving = true
+        defer { isSaving = false }
+
+        var saveOptions = exportOptions
+        saveOptions.appliesWatermark = appliesWatermark
+
+        do {
+            let outputVideo = try await video(for: saveOptions)
             try await videoSaveService.saveVideo(at: outputVideo.url)
             toastMessage = l10n.saveSuccessMessage
             return true
@@ -559,8 +675,10 @@ final class AutoPhotosViewModel: ObservableObject {
         toastMessage = nil
         alertInfo = nil
         shareSheetPayload = nil
+        adRewardedForCurrentPreview = false
         pickerResetToken = UUID()
         cleanupRenderedVideos()
+        Task { await rewardedAdService.loadAd() }
     }
 
     func recoverFromError() {
@@ -696,11 +814,19 @@ enum AppBootstrap {
             return makeUITestViewModel(for: scenario)
         }
 
+        #if canImport(GoogleMobileAds)
+        let adService: any RewardedAdService = AdMobRewardedAdService()
+        #else
+        let adService: any RewardedAdService = NoOpRewardedAdService()
+        #endif
+
         return AutoPhotosViewModel(
             photoLibraryService: DefaultPhotoLibraryService(),
             videoGenerationService: DefaultVideoGenerationService(),
             videoSaveService: DefaultVideoSaveService(),
-            templateLibraryService: DefaultTemplateLibraryService()
+            templateLibraryService: DefaultTemplateLibraryService(),
+            subscriptionService: StoreKitSubscriptionService(),
+            rewardedAdService: adService
         )
     }
 
@@ -735,7 +861,8 @@ enum AppBootstrap {
             photoLibraryService: StubPhotoLibraryService(),
             videoGenerationService: StubVideoGenerationService(),
             videoSaveService: StubVideoSaveService(),
-            templateLibraryService: StubTemplateLibraryService()
+            templateLibraryService: StubTemplateLibraryService(),
+            subscriptionService: NoOpSubscriptionService()
         )
 
         let template = TemplateCatalog.templates.first(where: { !$0.usesSelectionCount }) ?? TemplateCatalog.templates[0]
