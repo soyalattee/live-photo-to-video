@@ -21,7 +21,7 @@
 ## 0. 선결 / 블로킹 항목
 
 - [ ] **Apple Developer Program 등록 상태 확인** ($99/년). 미등록 시 실기기 테스트·StoreKit 실거래·AdMob·심사 전부 불가
-  - 주의: 미커밋 diff에서 `DEVELOPMENT_TEAM`이 빈 문자열 → `LR5K2G2WSV`로 다시 설정됨 → 실제 등록 여부 확인 필요
+  - 주의: `DEVELOPMENT_TEAM`이 `LR5K2G2WSV`로 설정됨 (PR #2에서 커밋·머지) → 실제 등록 여부 확인 필요
 - [ ] 같은 폴더에서 동시 실행 중인 다른 Claude/에디터 세션 종료 (파일 충돌·임시디스크 문제 방지)
 - [ ] 빌드/테스트용 임시 디스크 공간 확보 (`CLAUDE_CODE_TMPDIR` 여유 경로 지정 검토)
 
@@ -62,7 +62,7 @@
 
 - [ ] App Store Connect에 자동갱신 구독 상품 등록: `soya.auto-photos.weekly`, $1.99/주, 체험 없음
 - [x] `SubscriptionService` 프로토콜 + `StoreKitSubscriptionService` 구현 (`isSubscribed`, 구매, 복원, 트랜잭션 감시)
-- [x] Paywall 화면 구현 + 프리미엄 템플릿 선택 시 표시
+- [x] Paywall 화면 구현 — **다운로드 게이팅 시점**에 표시 (비구독자가 광고 없이 프리미엄 저장 시도 시). 선택·생성·미리보기는 무료로 변경 (PR #2)
   - 혜택 표기: 프리미엄 템플릿 / 워터마크 제거 / 광고 없이 저장
 - [x] **복원(Restore Purchases) 버튼** 포함 (심사 필수)
 - [x] StoreKit Configuration 파일 추가 (`auto-photos.storekit`) — Xcode 스킴에 연결 필요
@@ -84,7 +84,7 @@
 ## 6. 테스트
 
 - [ ] 전체 유닛 테스트 통과 (`xcodebuild test ... -scheme auto-photos`)
-- [ ] 기존 테스트 중 제거/프리미엄 변경으로 깨지는 케이스 수정 (예: `homeExperienceUsesOnlyBuiltInTemplates`)
+- [x] 프리미엄 게이팅 변경에 따른 선택 테스트 갱신 — `premiumTemplateSelectsWithoutPaywallWhenNotSubscribed` (PR #2). 개별 단위 테스트는 통과 확인, 전체 런은 DerivedData 캐시 이슈로 별도 확인 권장
 - [ ] 결제 테스트: StoreKit Configuration으로 구매 → 프리미엄 잠금 해제 / 복원 동작
 - [ ] **워터마크 제거 테스트**: 구독 시 워터마크 사라지는지
 - [ ] **AdMob 테스트**: 광고 시청 후 프리미엄 영상 다운로드 / 미시청 시 차단
