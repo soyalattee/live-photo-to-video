@@ -607,7 +607,7 @@ final class DefaultVideoGenerationService: VideoGenerationService {
             let cgImage = image.cgImage
         else { return }
 
-        let size: CGFloat = 260
+        let size: CGFloat = 130
         let margin: CGFloat = 56
 
         let watermarkLayer = CALayer()
