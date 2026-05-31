@@ -535,14 +535,14 @@ struct auto_photosTests {
         #expect(!VideoTemplate.restaurantRecommendation.isPremium)
     }
 
-    @Test("구독 미가입 상태에서 프리미엄 템플릿 선택 시 페이월이 표시된다")
-    func paywallIsShownWhenSelectingPremiumTemplateWithoutSubscription() {
+    @Test("구독 미가입 상태에서도 프리미엄 템플릿을 선택/생성할 수 있다 (게이팅은 다운로드 시점)")
+    func premiumTemplateSelectsWithoutPaywallWhenNotSubscribed() {
         let viewModel = makeViewModel(subscriptionService: MockSubscriptionService(isSubscribed: false))
 
         viewModel.selectTemplate(.lockScreenLog)
 
-        #expect(viewModel.showingPaywall == true)
-        #expect(viewModel.selectedTemplate == nil)
+        #expect(viewModel.showingPaywall == false)
+        #expect(viewModel.selectedTemplate?.id == VideoTemplate.lockScreenLog.id)
     }
 
     @Test("구독 중인 상태에서 프리미엄 템플릿은 바로 선택된다")

@@ -228,11 +228,8 @@ final class AutoPhotosViewModel: ObservableObject {
     }
 
     func selectTemplate(_ template: VideoTemplate) {
-        if template.isPremium && !isSubscribed {
-            showingPaywall = true
-            return
-        }
-
+        // Premium templates are free to select and generate; access is gated at
+        // download time via subscription, a rewarded ad, or a watermarked save.
         applyTemplateSelection(template)
     }
 
@@ -588,19 +585,31 @@ final class AutoPhotosViewModel: ObservableObject {
     func saveGeneratedVideo() async -> Bool {
         guard case .preview = generationState else { return false }
 
-        let needsAd = selectedTemplate?.isPremium == true && !isSubscribed && !adRewardedForCurrentPreview
-
-        if needsAd {
-            return await saveWithRewardedAd()
+        // Subscribers save without a watermark, for any template.
+        if isSubscribed {
+            return await performSave(appliesWatermark: false)
         }
 
-        return await performSave(appliesWatermark: !isSubscribed && !adRewardedForCurrentPreview)
+        // Free templates always save with a watermark for non-subscribers.
+        if selectedTemplate?.isPremium != true {
+            return await performSave(appliesWatermark: true)
+        }
+
+        // Premium templates require a rewarded ad before a non-subscriber can
+        // save them; the resulting save still carries a watermark.
+        if adRewardedForCurrentPreview {
+            return await performSave(appliesWatermark: true)
+        }
+
+        return await saveWithRewardedAd()
     }
 
     private func saveWithRewardedAd() async -> Bool {
-        if !rewardedAdService.isAdReady {
-            // Ad not ready — fall back to watermarked save
-            return await performSave(appliesWatermark: true)
+        // No reward available — premium saves are otherwise subscriber-only,
+        // so offer the paywall instead of saving.
+        guard rewardedAdService.isAdReady else {
+            showingPaywall = true
+            return false
         }
 
         isSaving = true
@@ -610,13 +619,17 @@ final class AutoPhotosViewModel: ObservableObject {
             let earned = try await rewardedAdService.showAd()
             if earned {
                 adRewardedForCurrentPreview = true
-                return await performSave(appliesWatermark: false)
-            } else {
+                // Non-subscriber saves keep the watermark even after the ad.
                 return await performSave(appliesWatermark: true)
+            } else {
+                // Reward not earned — no save; offer subscription instead.
+                showingPaywall = true
+                return false
             }
         } catch {
-            // Ad failed — fall back to watermarked save
-            return await performSave(appliesWatermark: true)
+            // Ad failed to present — offer subscription instead of saving.
+            showingPaywall = true
+            return false
         }
     }
 
